@@ -1,6 +1,7 @@
 use std::io::Write;
 use std::path::PathBuf;
 use std::process::Command;
+use cc;
 
 fn get_root_path() -> PathBuf {
     return PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR not set"));
@@ -42,6 +43,7 @@ fn main() {
     let cesdk_archive_url = url::Url::parse("https://github.com/Esri/cityengine-sdk/releases/download/2.7.8538/esri_ce_sdk-2.7.8538-rhel7-gcc93-x86_64-rel-opt.zip");
     let cesdk_root_path = download(&cesdk_archive_url.unwrap());
     let cesdk_bin_path = cesdk_root_path.join("bin");
+    let cesdk_include_path = cesdk_root_path.join("include");
 
     // patching rpath in cesdk on linux so core finds glutess
     let output = Command::new("patchelf")
@@ -56,4 +58,14 @@ fn main() {
     println!("cargo:rustc-link-search=native={}", cesdk_bin_path.to_str().unwrap());
     println!("cargo:rustc-link-lib=dylib=com.esri.prt.core");
     println!("cargo:rustc-link-arg=-Wl,-rpath,{}", cesdk_bin_path.to_str().unwrap());
+
+    cc::Build::new()
+        .cpp(true)
+        .include(cesdk_include_path)
+        .file("cpp/bindings.cpp")
+        .cpp_link_stdlib("stdc++")
+        .warnings_into_errors(true)
+        .compile("bindings");
+    println!("cargo:rerun-if-changed=cpp/bindings.cpp");
+    println!("cargo:rerun-if-changed=cpp/bindings.h");
 }
