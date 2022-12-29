@@ -1,10 +1,6 @@
 use std::ffi::c_char;
 use libc;
 
-pub fn add(left: usize, right: usize) -> usize {
-    left + right
-}
-
 #[repr(C)]
 pub struct Version {
     pub version_major: i32,
@@ -93,12 +89,6 @@ mod tests {
         let ptr_slice: &[i32] = slice::from_raw_parts(ptr, ptr_len as usize);
         let raw_utf16: Vec<u16> = as_vec_u16(ptr_slice);
         return String::from_utf16(raw_utf16.as_slice()).unwrap_or_default();
-    }
-
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
     }
 
     #[test]
