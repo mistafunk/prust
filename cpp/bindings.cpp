@@ -2,7 +2,7 @@
 
 #include "prt/API.h"
 
-#include <set>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -24,14 +24,23 @@ std::string toUTF8FromUTF16(const std::wstring& utf16String) {
 	return callAPI<wchar_t, char>(prt::StringUtils::toUTF8FromUTF16, utf16String);
 }
 
-std::set<std::unique_ptr<RustLogHandlerBinding>> LogHandlerHolder;
+using HandlerHolder = std::map<void*, std::unique_ptr<RustLogHandlerBinding>>;
+HandlerHolder logHandlerHolder;
 
 } // namespace
 
 void ffi_add_log_handler(AbstractLogHandlerBinding* logHandler) {
-	auto [it, done] = LogHandlerHolder.emplace(std::make_unique<RustLogHandlerBinding>(logHandler));
-	prt::addLogHandler((*it).get());
+	auto [handlerIt, done] = logHandlerHolder.emplace(logHandler->context, std::make_unique<RustLogHandlerBinding>(logHandler));
+	prt::addLogHandler(handlerIt->second.get());
 };
+
+void ffi_remove_log_handler(AbstractLogHandlerBinding* logHandler) {
+	auto it = logHandlerHolder.find(logHandler->context);
+	if (it != logHandlerHolder.end()) {
+		prt::removeLogHandler(it->second.get());
+	}
+	delete logHandler;
+}
 
 void RustLogHandlerBinding::handleLogEvent(const wchar_t* msg, prt::LogLevel /*level*/) {
 	std::string nMsg = toUTF8FromUTF16(msg);
@@ -44,6 +53,6 @@ const prt::LogLevel* RustLogHandlerBinding::getLevels(size_t* count) {
 }
 
 void RustLogHandlerBinding::getFormat(bool* dateTime, bool* level) {
-	*dateTime = true;
-	*level = true;
+	*dateTime = false;
+	*level = false;
 }

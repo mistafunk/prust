@@ -14,12 +14,13 @@ struct AbstractLogHandlerBinding {
 };
 
 void ffi_add_log_handler(AbstractLogHandlerBinding* logHandler);
+void ffi_remove_log_handler(AbstractLogHandlerBinding* logHandler);
 }
 
 class RustLogHandlerBinding : public prt::LogHandler {
 public:
 	explicit RustLogHandlerBinding(AbstractLogHandlerBinding* binding) : mBinding{binding} {}
-	~RustLogHandlerBinding() = default;
+	virtual ~RustLogHandlerBinding() = default;
 
 	void handleLogEvent(const wchar_t* msg, prt::LogLevel level) override;
 	const prt::LogLevel* getLevels(size_t* count) override;

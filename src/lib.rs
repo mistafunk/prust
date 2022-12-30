@@ -1,3 +1,17 @@
+mod helpers {
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    pub fn to_wchar_vec(msg: &str) -> Vec<libc::wchar_t> {
+        let wide_msg = widestring::U32CString::from_str(msg).expect("cannot convert to UTF-32/wchar_t");
+        return wide_msg.into_vec_with_nul().iter().map(|&e| e as libc::wchar_t).collect();
+    }
+
+    #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
+    pub fn toWcharVec(msg: &str) -> Vec<libc::wchar_t> {
+        let wide_msg = widestring::U16CString::from_str(msg).expect("cannot convert to UTF-16/wchar_t");
+        return wide_msg.into_vec_with_nul().iter().map(|&e| e as libc::wchar_t).collect();
+    }
+}
+
 pub mod prt {
     use std::ffi::{c_char, c_void, CStr};
 
@@ -63,7 +77,7 @@ pub mod prt {
     #[allow(non_camel_case_types)]
     #[allow(dead_code)]
     #[repr(C)]
-    enum LogLevel {
+    pub enum LogLevel {
         LOG_TRACE = 0,
         LOG_DEBUG = 1,
         LOG_INFO = 2,
@@ -110,7 +124,7 @@ pub mod prt {
 
     #[repr(C)]
     struct Object {
-        dummy: i8 // to avoid the "unsafe FFI object" warning
+        dummy: i8, // to avoid the "unsafe FFI object" warning
     }
 
     impl Object {
@@ -133,7 +147,7 @@ pub mod prt {
     }
 
     pub trait LogHandler {
-        fn handle_log_event(&mut self, msg: *const c_char);
+        fn handle_log_event(&mut self, msg: &str);
     }
 
     #[repr(C)]
@@ -142,41 +156,70 @@ pub mod prt {
         context: *mut T,
     }
 
-    pub struct PrtLogHandler {}
+    #[derive(Default)]
+    pub struct DefaultLogHandler {}
 
-    impl LogHandler for PrtLogHandler {
-        fn handle_log_event(&mut self, msg: *const c_char) {
-            unsafe {
-                println!("{}", CStr::from_ptr(msg).to_str().unwrap());
-            }
+    impl LogHandler for DefaultLogHandler {
+        fn handle_log_event(&mut self, msg: &str) {
+            println!("{}", msg);
         }
     }
 
     #[link(name = "bindings", kind = "static")]
     extern "C" {
         fn ffi_add_log_handler(log_handler: *mut c_void);
+        fn ffi_remove_log_handler(log_handler: *mut c_void);
     }
 
-    pub fn add_log_handler<T>(log_handler: Box<T>)
-        where T: LogHandler
-    {
-        unsafe extern "C" fn handle_log_event<T>(context: *mut T, msg: *const c_char)
-            where T: LogHandler {
+    pub fn add_log_handler<T>(log_handler: &mut Box<T>) where T: LogHandler {
+        unsafe extern "C" fn handle_log_event<T>(context: *mut T, cmsg: *const c_char)
+            where T: LogHandler
+        {
             let handler_ref: &mut T = &mut *context;
+
+            let msg = CStr::from_ptr(cmsg).to_str().unwrap();
             handler_ref.handle_log_event(msg);
         }
 
-        let context = Box::into_raw(log_handler);
-
+        let context: *mut T = log_handler.as_mut();
         let binding: Box<AbstractLogHandlerBinding<T>> = Box::new(AbstractLogHandlerBinding {
             handle_log_event,
             context,
         });
 
         let binding_ptr: *mut c_void = Box::into_raw(binding) as *mut c_void;
-
         unsafe {
             ffi_add_log_handler(binding_ptr);
+        }
+    }
+
+    extern "C" {
+        #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+        #[link_name = "\u{1}_ZN3prt3logEPKwNS_8LogLevelE"]
+        fn prt_log(msg: *const libc::wchar_t, level: LogLevel);
+    }
+
+    pub fn log(msg: &str, level: LogLevel) {
+        let cs_vec = crate::helpers::to_wchar_vec(msg);
+        unsafe {
+            prt_log(cs_vec.as_ptr(), level);
+        }
+    }
+
+    pub fn remove_log_handler<T>(log_handler: &mut Box<T>) where T: LogHandler {
+        unsafe extern "C" fn handle_log_event<T>(context: *mut T, cmsg: *const c_char)
+            where T: LogHandler
+        {}
+
+        let context = log_handler.as_mut() as *mut T;
+        let binding: Box<AbstractLogHandlerBinding<T>> = Box::new(AbstractLogHandlerBinding {
+            handle_log_event,
+            context,
+        });
+
+        let binding_ptr: *mut c_void = Box::into_raw(binding) as *mut c_void;
+        unsafe {
+            ffi_remove_log_handler(binding_ptr);
         }
     }
 
@@ -277,9 +320,6 @@ pub mod prt {
             let cesdk_lib_dir_c = CString::new(cesdk_lib_path.to_str().expect("foo")).expect("CString::new failed");
             let cesdk_lib_dir_wchar: Vec<libc::wchar_t> = cesdk_lib_dir_c.as_bytes_with_nul().iter().map(|&e| e as libc::wchar_t).collect();
             let plugins_dirs: [*const libc::wchar_t; 1] = [cesdk_lib_dir_wchar.as_ptr()];
-
-            let log_handler = Box::new(PrtLogHandler {});
-            add_log_handler(log_handler);
 
             unsafe {
                 let prt_handle = init(plugins_dirs.as_ptr(), plugins_dirs.len(), LogLevel::LOG_DEBUG);
