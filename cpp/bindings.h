@@ -13,7 +13,7 @@ struct AbstractLogHandlerBinding {
 	void* context;
 };
 
-void register_log_handler(AbstractLogHandlerBinding* logHandler);
+void ffi_add_log_handler(AbstractLogHandlerBinding* logHandler);
 }
 
 class RustLogHandlerBinding : public prt::LogHandler {

@@ -28,7 +28,7 @@ std::set<std::unique_ptr<RustLogHandlerBinding>> LogHandlerHolder;
 
 } // namespace
 
-void register_log_handler(AbstractLogHandlerBinding* logHandler) {
+void ffi_add_log_handler(AbstractLogHandlerBinding* logHandler) {
 	auto [it, done] = LogHandlerHolder.emplace(std::make_unique<RustLogHandlerBinding>(logHandler));
 	prt::addLogHandler((*it).get());
 };

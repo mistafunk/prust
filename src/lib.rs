@@ -109,7 +109,9 @@ pub mod prt {
     }
 
     #[repr(C)]
-    struct Object {}
+    struct Object {
+        dummy: i8 // to avoid the "unsafe FFI object" warning
+    }
 
     impl Object {
         fn destroy(&self) {}
@@ -140,11 +142,6 @@ pub mod prt {
         context: *mut T,
     }
 
-    #[link(name = "bindings", kind = "static")]
-    extern "C" {
-        fn register_log_handler(log_handler: *mut c_void);
-    }
-
     pub struct PrtLogHandler {}
 
     impl LogHandler for PrtLogHandler {
@@ -153,6 +150,11 @@ pub mod prt {
                 println!("{}", CStr::from_ptr(msg).to_str().unwrap());
             }
         }
+    }
+
+    #[link(name = "bindings", kind = "static")]
+    extern "C" {
+        fn ffi_add_log_handler(log_handler: *mut c_void);
     }
 
     pub fn add_log_handler<T>(log_handler: Box<T>)
@@ -174,7 +176,7 @@ pub mod prt {
         let binding_ptr: *mut c_void = Box::into_raw(binding) as *mut c_void;
 
         unsafe {
-            register_log_handler(binding_ptr);
+            ffi_add_log_handler(binding_ptr);
         }
     }
 
