@@ -39,6 +39,7 @@ pub mod prt {
 
     #[allow(non_camel_case_types)]
     #[allow(dead_code)]
+    #[derive(PartialEq)]
     #[repr(C)]
     pub enum Status {
         STATUS_OK,
@@ -239,8 +240,10 @@ pub mod prt {
     extern "C" {
         #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
         #[link_name = "\u{1}_ZN3prt4initEPKPKwmNS_8LogLevelEPNS_6StatusE"]
-        fn ffi_init(prt_plugins: *const *const libc::wchar_t, prt_plugins_count: libc::size_t,
-                    log_level: LogLevel) -> *const Object;
+        fn ffi_init(prt_plugins: *const *const libc::wchar_t,
+                    prt_plugins_count: libc::size_t,
+                    log_level: LogLevel,
+                    status: *mut Status) -> *const Object;
     }
 
     pub struct PrtContext {
@@ -275,9 +278,12 @@ pub mod prt {
         let plugins_dirs: [*const libc::wchar_t; 1] = [cesdk_lib_dir_wchar_vec.as_ptr()];
         let log_level = initial_minimal_log_level.or(Some(LogLevel::LOG_WARNING));
         unsafe {
+            let mut status = Status::STATUS_UNSPECIFIED_ERROR;
             let prt_handle = ffi_init(plugins_dirs.as_ptr(),
-                                      plugins_dirs.len(), log_level.unwrap());
-            return if prt_handle != ptr::null() {
+                                      plugins_dirs.len(),
+                                      log_level.unwrap(),
+                                      ptr::addr_of_mut!(status));
+            return if (prt_handle != ptr::null()) && (status == Status::STATUS_OK) {
                 println!("PRT has been initialized.");
                 Ok(Box::new(PrtContext { handle: prt_handle }))
             } else {
