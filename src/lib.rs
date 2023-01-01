@@ -1,24 +1,36 @@
 mod helpers {
-    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    use std::{fs, path};
+
     pub fn to_wchar_vec(msg: &str) -> Vec<libc::wchar_t> {
-        let wide_msg = widestring::U32CString::from_str(msg).expect("cannot convert to UTF-32/wchar_t");
-        return wide_msg.into_vec_with_nul().iter().map(|&e| e as libc::wchar_t).collect();
+        return if cfg!(linux) {
+            let wide_msg = widestring::U32CString::from_str(msg).expect("cannot convert to UTF-32/wchar_t");
+            wide_msg.into_vec_with_nul().iter().map(|&e| e as libc::wchar_t).collect()
+        } else {
+            let wide_msg = widestring::U16CString::from_str(msg).expect("cannot convert to UTF-16/wchar_t");
+            wide_msg.into_vec_with_nul().iter().map(|&e| e as libc::wchar_t).collect()
+        };
     }
 
-    #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
-    pub fn toWcharVec(msg: &str) -> Vec<libc::wchar_t> {
-        let wide_msg = widestring::U16CString::from_str(msg).expect("cannot convert to UTF-16/wchar_t");
-        return wide_msg.into_vec_with_nul().iter().map(|&e| e as libc::wchar_t).collect();
+    pub fn get_cesdk_path() -> path::PathBuf {
+        let crate_root = path::PathBuf::from(std::env::var("CARGO_MANIFEST_DIR")
+            .expect("CARGO_MANIFEST_DIR not set"));
+        let deps_path = crate_root.join("deps");
+        let cesdk_path_entry = fs::read_dir(deps_path).expect("cannot read deps dir")
+            .filter(|p| p.is_ok() && p.as_ref().unwrap().file_type().unwrap().is_dir())
+            .find(|p| p.as_ref().unwrap().path().file_name().unwrap().to_str().unwrap().starts_with("esri_ce_sdk-"));
+        return cesdk_path_entry.expect("could not find cesdk lib dir").unwrap().path();
     }
 }
 
 pub mod prt {
-    use std::ffi::{c_char, c_void, CStr};
+    pub use std::{fs, path};
+    use std::ffi;
+    use std::ptr::null;
 
     #[allow(non_camel_case_types)]
     #[allow(dead_code)]
     #[repr(C)]
-    enum Status {
+    pub enum Status {
         STATUS_OK,
         STATUS_UNSPECIFIED_ERROR,
         STATUS_OUT_OF_MEM,
@@ -93,14 +105,14 @@ pub mod prt {
         version_minor: i32,
         version_build: i32,
 
-        name: *const c_char,
-        full_name: *const c_char,
-        version: *const c_char,
-        build_config: *const c_char,
-        build_os: *const c_char,
-        build_arch: *const c_char,
-        build_tc: *const c_char,
-        build_date: *const c_char,
+        name: *const ffi::c_char,
+        full_name: *const ffi::c_char,
+        version: *const ffi::c_char,
+        build_config: *const ffi::c_char,
+        build_os: *const ffi::c_char,
+        build_arch: *const ffi::c_char,
+        build_tc: *const ffi::c_char,
+        build_date: *const ffi::c_char,
 
         name_w: *const libc::wchar_t,
         full_name_w: *const libc::wchar_t,
@@ -113,12 +125,12 @@ pub mod prt {
 
         cga_version_major: i32,
         cga_version_minor: i32,
-        cga_version: *const c_char,
+        cga_version: *const ffi::c_char,
         cga_version_w: *const i32,
 
         cgac_version_major: i32,
         cgac_version_minor: i32,
-        cgac_version: *const c_char,
+        cgac_version: *const ffi::c_char,
         cgac_version_w: *const i32,
     }
 
@@ -134,16 +146,77 @@ pub mod prt {
     extern "C" {
         #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
         #[link_name = "\u{1}_ZN3prt4initEPKPKwmNS_8LogLevelEPNS_6StatusE"]
-        fn init(prt_plugins: *const *const libc::wchar_t, prt_plugins_count: libc::size_t,
-                log_level: LogLevel) -> *const Object;
+        fn ffi_init(prt_plugins: *const *const libc::wchar_t, prt_plugins_count: libc::size_t,
+                    log_level: LogLevel) -> *const Object;
 
         #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
         #[link_name = "\u{1}_ZN3prt10getVersionEv"]
-        fn get_version() -> *const Version;
+        fn ffi_get_version() -> *const Version;
 
         #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
         #[link_name = "\u{1}_ZN3prt20getStatusDescriptionENS_6StatusE"]
-        fn get_status_description(input: i32) -> *const c_char;
+        fn ffi_get_status_description(input: i32) -> *const ffi::c_char;
+    }
+
+    pub struct PrtContext {
+        handle: *const Object,
+    }
+
+    impl Drop for PrtContext {
+        fn drop(&mut self) {
+            unsafe {
+                Object::destroy(&*self.handle);
+            }
+            println!("PRT has been shutdown.")
+        }
+    }
+
+    pub struct PrtError {
+        pub message: String,
+        pub status: Option<Status>,
+    }
+
+    pub fn get_status_message(status: Status) -> String {
+        unsafe {
+            let status_description_cchar_ptr = ffi_get_status_description(status as i32);
+            let status_description_cstr = ffi::CStr::from_ptr(status_description_cchar_ptr);
+            let status_description = status_description_cstr.to_str().unwrap_or_default();
+            return String::from(status_description);
+        }
+    }
+
+    pub fn init(_extra_plugin_paths: Option<Vec<path::PathBuf>>,
+                initial_minimal_log_level: Option<LogLevel>) -> Result<Box<PrtContext>, PrtError>
+    {
+        // we include the built-in extension path by default
+        let cesdk_lib_path = crate::helpers::get_cesdk_path().join("lib");
+        if !cesdk_lib_path.exists() {
+            return Err(PrtError {
+                message: format!("Error while loading built-in extensions: {}", get_status_message(Status::STATUS_FILE_NOT_FOUND)),
+                status: Some(Status::STATUS_FILE_NOT_FOUND),
+            });
+        }
+        let cesdk_lib_dir_wchar_vec = crate::helpers::to_wchar_vec(cesdk_lib_path.to_str().unwrap());
+
+        // append additional extension dirs
+        // TODO: handle extra_plugin_paths
+
+        let plugins_dirs: [*const libc::wchar_t; 1] = [cesdk_lib_dir_wchar_vec.as_ptr()];
+        let log_level = initial_minimal_log_level.or(Some(LogLevel::LOG_WARNING));
+        unsafe {
+            let prt_handle = ffi_init(plugins_dirs.as_ptr(),
+                                      plugins_dirs.len(), log_level.unwrap());
+            return if prt_handle != null() {
+                println!("PRT has been initialized.");
+                Ok(Box::new(PrtContext { handle: prt_handle }))
+            } else {
+                // TODO: add details and prt::Status handling
+                Err(PrtError {
+                    message: get_status_message(Status::STATUS_UNSPECIFIED_ERROR),
+                    status: Some(Status::STATUS_UNSPECIFIED_ERROR),
+                })
+            };
+        }
     }
 
     pub trait LogHandler {
@@ -152,7 +225,7 @@ pub mod prt {
 
     #[repr(C)]
     struct AbstractLogHandlerBinding<T> where T: LogHandler {
-        handle_log_event: unsafe extern fn(*mut T, msg: *const c_char),
+        handle_log_event: unsafe extern fn(*mut T, msg: *const ffi::c_char),
         context: *mut T,
     }
 
@@ -167,17 +240,17 @@ pub mod prt {
 
     #[link(name = "bindings", kind = "static")]
     extern "C" {
-        fn ffi_add_log_handler(log_handler: *mut c_void);
-        fn ffi_remove_log_handler(log_handler: *mut c_void);
+        fn ffi_add_log_handler(log_handler: *mut ffi::c_void);
+        fn ffi_remove_log_handler(log_handler: *mut ffi::c_void);
     }
 
     pub fn add_log_handler<T>(log_handler: &mut Box<T>) where T: LogHandler {
-        unsafe extern "C" fn handle_log_event<T>(context: *mut T, cmsg: *const c_char)
+        unsafe extern "C" fn handle_log_event<T>(context: *mut T, cmsg: *const ffi::c_char)
             where T: LogHandler
         {
             let handler_ref: &mut T = &mut *context;
 
-            let msg = CStr::from_ptr(cmsg).to_str().unwrap();
+            let msg = ffi::CStr::from_ptr(cmsg).to_str().unwrap();
             handler_ref.handle_log_event(msg);
         }
 
@@ -187,7 +260,7 @@ pub mod prt {
             context,
         });
 
-        let binding_ptr: *mut c_void = Box::into_raw(binding) as *mut c_void;
+        let binding_ptr: *mut ffi::c_void = Box::into_raw(binding) as *mut ffi::c_void;
         unsafe {
             ffi_add_log_handler(binding_ptr);
         }
@@ -207,7 +280,7 @@ pub mod prt {
     }
 
     pub fn remove_log_handler<T>(log_handler: &mut Box<T>) where T: LogHandler {
-        unsafe extern "C" fn handle_log_event<T>(_context: *mut T, _cmsg: *const c_char)
+        unsafe extern "C" fn handle_log_event<T>(_context: *mut T, _cmsg: *const ffi::c_char)
             where T: LogHandler
         {}
 
@@ -217,7 +290,7 @@ pub mod prt {
             context,
         });
 
-        let binding_ptr: *mut c_void = Box::into_raw(binding) as *mut c_void;
+        let binding_ptr: *mut ffi::c_void = Box::into_raw(binding) as *mut ffi::c_void;
         unsafe {
             ffi_remove_log_handler(binding_ptr);
         }
@@ -225,9 +298,6 @@ pub mod prt {
 
     #[cfg(test)]
     mod tests {
-        use std::{fs, slice};
-        use std::ffi::{CStr, CString};
-        use std::path::PathBuf;
         use super::*;
 
         fn as_vec_u16(v: &[i32]) -> Vec<u16> {
@@ -243,17 +313,17 @@ pub mod prt {
             assert!(!ptr.is_null());
             let ptr_len = libc::wcslen(ptr);
             assert!(ptr_len > 0);
-            let ptr_slice: &[i32] = slice::from_raw_parts(ptr, ptr_len as usize);
+            let ptr_slice: &[i32] = std::slice::from_raw_parts(ptr, ptr_len as usize);
             let raw_utf16: Vec<u16> = as_vec_u16(ptr_slice);
             return String::from_utf16(raw_utf16.as_slice()).unwrap_or_default();
         }
 
-        fn from_cchar_ptr_to_str(cchar_ptr: *const c_char) -> String {
-            let val_cstr = unsafe { CStr::from_ptr(cchar_ptr) };
+        fn from_cchar_ptr_to_str(cchar_ptr: *const ffi::c_char) -> String {
+            let val_cstr = unsafe { ffi::CStr::from_ptr(cchar_ptr) };
             return val_cstr.to_str().unwrap_or_default().to_string(); // this is probably far from ideal ;-)
         }
 
-        fn print_and_assert_cstring(prefix: &str, raw_val: *const c_char, expected_val: &str) {
+        fn print_and_assert_cstring(prefix: &str, raw_val: *const ffi::c_char, expected_val: &str) {
             let string_val = from_cchar_ptr_to_str(raw_val);
             println!("{} = {}", prefix, string_val);
             assert_eq!(string_val, expected_val);
@@ -272,7 +342,7 @@ pub mod prt {
         #[test]
         fn prt_get_version() {
             unsafe {
-                let ver = &*get_version();
+                let ver = &*ffi_get_version();
                 print_and_assert_cstring("prt::Version::mName", ver.name, "ArcGIS Procedural Runtime");
                 print_and_assert_cstring("prt::Version::mVersion", ver.version, "2.7.8538");
                 print_and_assert_cstring("prt::Version::mBuildConfig", ver.build_config, "PRT_BC_REL");
@@ -298,32 +368,13 @@ pub mod prt {
         #[test]
         fn prt_get_status_description() {
             unsafe {
-                let status_description_cchar_ptr = get_status_description(2);
+                let status_description_cchar_ptr = ffi_get_status_description(2);
 
-                let status_description_cstr = CStr::from_ptr(status_description_cchar_ptr);
+                let status_description_cstr = ffi::CStr::from_ptr(status_description_cchar_ptr);
                 let status_description = status_description_cstr.to_str().unwrap_or_default();
 
                 println!("prt::getStatusDescription(2) = {}", status_description);
                 assert_eq!(status_description, "Out of memory.");
-            }
-        }
-
-        #[test]
-        fn prt_init() {
-            let crate_root = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR not set"));
-            let deps_path = crate_root.join("deps");
-            let cesdk_path_entry = fs::read_dir(deps_path).expect("cannot read deps dir")
-                .filter(|p| p.is_ok() && p.as_ref().unwrap().file_type().unwrap().is_dir())
-                .find(|p| p.as_ref().unwrap().path().file_name().unwrap().to_str().unwrap().starts_with("esri_ce_sdk-"));
-            let cesdk_lib_path = cesdk_path_entry.expect("could not find cesdk lib dir").unwrap().path().join("lib");
-
-            let cesdk_lib_dir_c = CString::new(cesdk_lib_path.to_str().expect("foo")).expect("CString::new failed");
-            let cesdk_lib_dir_wchar: Vec<libc::wchar_t> = cesdk_lib_dir_c.as_bytes_with_nul().iter().map(|&e| e as libc::wchar_t).collect();
-            let plugins_dirs: [*const libc::wchar_t; 1] = [cesdk_lib_dir_wchar.as_ptr()];
-
-            unsafe {
-                let prt_handle = init(plugins_dirs.as_ptr(), plugins_dirs.len(), LogLevel::LOG_DEBUG);
-                Object::destroy(&*prt_handle);
             }
         }
     }

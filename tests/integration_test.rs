@@ -30,3 +30,12 @@ fn test_custom_log_handler() {
     prt::remove_log_handler(&mut custom_log_handler);
     assert_eq!("capture me", custom_log_handler.captured_message);
 }
+
+#[test]
+fn test_init() {
+    let mut log_handler = Box::new(prt::DefaultLogHandler::default());
+    prt::add_log_handler(&mut log_handler);
+
+    let prt_context = prt::init(None, Some(prt::LogLevel::LOG_INFO));
+    assert!(prt_context.is_ok());
+}
