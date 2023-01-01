@@ -6,16 +6,19 @@ mod helpers {
         return val_cstr.to_str().unwrap_or_default().to_string();
     }
 
+    #[allow(dead_code)]
     #[cfg(target_os = "linux")]
     fn wchar_is_utf32() -> bool {
         true
     }
 
+    #[allow(dead_code)]
     #[cfg(target_os = "windows")]
     fn wchar_is_utf32() -> bool {
         false
     }
 
+    #[allow(dead_code)]
     pub fn from_wchar_ptr_to_string(ptr: *const libc::wchar_t) -> String {
         assert!(!ptr.is_null());
         let ptr_len = unsafe { libc::wcslen(ptr) };
@@ -24,12 +27,11 @@ mod helpers {
             let widestring_result = unsafe { widestring::U32CString::from_ptr(ptr as *const u32, ptr_len) };
             let cstring = widestring_result.expect("could not convert wchar_t array to UTF32 string");
             cstring.to_string().expect("could not convert to Rust string")
-        }
-        else {
+        } else {
             let widestring_result = unsafe { widestring::U16CString::from_ptr(ptr as *const u16, ptr_len) };
             let cstring = widestring_result.expect("could not convert wchar_t array to UTF16 string");
             cstring.to_string().expect("could not convert to Rust string")
-        }
+        };
     }
 
     pub fn from_string_to_wchar_vec(msg: &str) -> Vec<libc::wchar_t> {
@@ -46,8 +48,8 @@ mod helpers {
 
     // TODO: deduplicate with get_dependencies_path in build.rs
     pub fn get_cesdk_path() -> path::PathBuf {
-        let crate_root = path::PathBuf::from(std::env::var("OUT_DIR")
-            .expect("env var OUT_DIR not set"));
+        let out_dir = env!("OUT_DIR");
+        let crate_root = path::PathBuf::from(out_dir);
         let deps_path = crate_root.join("prust_custom_deps");
         let cesdk_path_entry = fs::read_dir(deps_path)
             .expect("cannot read deps dir")
@@ -60,13 +62,16 @@ mod helpers {
 }
 
 pub mod prt {
-    pub use std::{fs, path};
+    use std::{collections, path};
     use std::ffi;
+    use std::fmt::{Display, Formatter};
     use std::ptr;
+    use std::ptr::{null, null_mut};
 
     #[allow(non_camel_case_types)]
     #[allow(dead_code)]
     #[derive(PartialEq)]
+    #[derive(Debug)]
     #[repr(C)]
     pub enum Status {
         STATUS_OK,
@@ -137,6 +142,7 @@ pub mod prt {
         LOG_NO = 1000,
     }
 
+    #[derive(Debug)]
     pub struct PrtError {
         pub message: String,
         pub status: Option<Status>,
@@ -243,12 +249,12 @@ pub mod prt {
     extern "C" {
         #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
         #[link_name = "\u{1}_ZN3prt20getStatusDescriptionENS_6StatusE"]
-        fn ffi_get_status_description(input: i32) -> *const ffi::c_char;
+        fn ffi_get_status_description(input: Status) -> *const ffi::c_char;
     }
 
     pub fn get_status_description(status: Status) -> String {
         unsafe {
-            let status_description_cchar_ptr = ffi_get_status_description(status as i32);
+            let status_description_cchar_ptr = ffi_get_status_description(status);
             let status_description_cstr = ffi::CStr::from_ptr(status_description_cchar_ptr);
             let status_description = status_description_cstr.to_str().unwrap_or_default();
             return String::from(status_description);
@@ -277,12 +283,19 @@ pub mod prt {
         handle: *const Object,
     }
 
+    unsafe impl Sync for PrtContext {} // handle is thread-safe
+
     impl Drop for PrtContext {
         fn drop(&mut self) {
             unsafe {
                 Object::destroy(&*self.handle);
             }
-            println!("PRT has been shutdown.")
+        }
+    }
+
+    impl Display for PrtContext {
+        fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+            write!(f, "PrtContext native handle at {:p}", self.handle)
         }
     }
 
@@ -311,7 +324,6 @@ pub mod prt {
                                       log_level.unwrap(),
                                       ptr::addr_of_mut!(status));
             return if (prt_handle != ptr::null()) && (status == Status::STATUS_OK) {
-                println!("PRT has been initialized.");
                 Ok(Box::new(PrtContext { handle: prt_handle }))
             } else {
                 // TODO: add details and prt::Status handling
@@ -320,6 +332,170 @@ pub mod prt {
                     status: Some(Status::STATUS_UNSPECIFIED_ERROR),
                 })
             };
+        }
+    }
+
+    #[derive(PartialEq)]
+    #[derive(Debug)]
+    pub enum PrimitiveType {
+        Undefined(),
+        String(String),
+        Float(f64),
+        Bool(bool),
+        Int(i32),
+        StringArray(Vec<String>),
+        FloatArray(Vec<f64>),
+        BoolArray(Vec<bool>),
+        IntArray(Vec<i32>),
+    }
+
+    pub type EncoderOptions = collections::HashMap<String, PrimitiveType>;
+
+    #[repr(C)]
+    struct AttributeMap {
+        dummy: i32,
+    }
+
+    #[repr(C)]
+    struct ResolveMap {
+        dummy: i32,
+    }
+
+    #[repr(C)]
+    struct InitialShapeWrapper {
+        vertex_coords: *const f64,
+        vertex_coords_count: libc::size_t,
+        indices: *const u32,
+        indices_count: libc::size_t,
+        face_counts: *const u32,
+        face_counts_count: libc::size_t,
+
+        rule_file: *const ffi::c_char,
+        start_rule: *const ffi::c_char,
+        random_seed: i32,
+        name: *const ffi::c_char,
+        attributes: *const AttributeMap,
+        resolve_map: *const ResolveMap,
+    }
+
+    // TODO: add builder methods
+    pub struct InitialShape {
+        pub vertex_coords: Vec<f64>,
+        pub indices: Vec<u32>,
+        pub face_counts: Vec<u32>,
+
+        pub rule_file: ffi::CString,
+        pub start_rule: ffi::CString,
+        pub random_seed: i32,
+        pub name: ffi::CString,
+    }
+
+    impl InitialShape {
+        //     fn vertex_coords(&mut self, coords: Vec<f64>) {
+        //         self.vertex_coords = coords;
+        //     }
+        fn get_wrapper(&self) -> InitialShapeWrapper {
+            return InitialShapeWrapper {
+                vertex_coords: self.vertex_coords.as_ptr(),
+                vertex_coords_count: self.vertex_coords.len(),
+                indices: self.indices.as_ptr(),
+                indices_count: self.indices.len(),
+                face_counts: self.face_counts.as_ptr(),
+                face_counts_count: self.face_counts.len(),
+                rule_file: self.rule_file.as_ptr(),
+                start_rule: self.start_rule.as_ptr(),
+                random_seed: self.random_seed,
+                name: self.name.as_ptr(),
+                attributes: null(), // TODO
+                resolve_map: null(), // TODO
+            }
+        }
+    }
+
+    pub trait Callbacks {}
+
+    #[repr(C)]
+    struct AbstractCallbacksBinding<T> where T: Callbacks {
+        context: *mut T,
+    }
+
+    #[derive(Default)]
+    pub struct FileCallbacks {}
+
+    impl Callbacks for FileCallbacks {}
+
+    #[repr(C)]
+    struct Cache {
+        dummy: i32,
+    }
+
+    #[repr(C)]
+    struct OcclusionSet {
+        dummy: i32,
+    }
+
+    #[link(name = "bindings", kind = "static")]
+    extern "C" {
+        fn ffi_generate(initial_shapes: *const *const InitialShapeWrapper,
+                        initial_shapes_count: libc::size_t,
+                        occlusion_handles: *const u64, // see prt::OcclusionSet::Handle
+                        encoders: *const *const libc::wchar_t,
+                        encoders_count: libc::size_t,
+                        encoder_options: *const AttributeMap,
+                        callbacks: *mut ffi::c_void,
+                        cache: *mut Cache,
+                        occl_set: *const OcclusionSet,
+                        generate_options: *const AttributeMap) -> Status;
+    }
+
+    pub fn generate<C>(initial_shapes: &Vec<Box<InitialShape>>,
+                       encoders: &Vec<String>,
+                       encoder_options: &Vec<EncoderOptions>,
+                       callbacks: &mut Box<C>) -> Status // todo: consistent error handling
+        where C: Callbacks
+    {
+        if encoders.len() != encoder_options.len() {
+            return Status::STATUS_ARGUMENTS_MISMATCH;
+        }
+
+        unsafe {
+            let initial_shape_wrappers: Vec<InitialShapeWrapper> = initial_shapes.iter()
+                .map(|x| x.get_wrapper())
+                .collect();
+            let initial_shape_wrapper_ptr_vec: Vec<*const InitialShapeWrapper> = initial_shape_wrappers.iter()
+                .map(|x| &*x as *const InitialShapeWrapper).collect();
+
+            let occlusion_handles: *const u64 = null();
+
+            // TODO: probably better to stay UTF-8 on the rust side and convert in the native wrapper
+            let encoders_wchar_vec: Vec<Vec<libc::wchar_t>> = encoders.iter()
+                .map(|x| crate::helpers::from_string_to_wchar_vec(x.as_str()))
+                .collect();
+            let encoders_ptr_vec: Vec<*const libc::wchar_t> = encoders_wchar_vec.iter().map(|x| x.as_ptr()).collect();
+
+            let encoder_options_ptr_vec: *const AttributeMap = null();
+
+            let callbacks_context: *mut C = callbacks.as_mut();
+            let callbacks_binding: Box<AbstractCallbacksBinding<C>>
+                = Box::new(AbstractCallbacksBinding { context: callbacks_context });
+            let callbacks_binding_ptr
+                = Box::into_raw(callbacks_binding) as *mut ffi::c_void;
+
+            let cache: *mut Cache = null_mut();
+            let occl_set: *const OcclusionSet = null();
+            let generate_options: *const AttributeMap = null();
+
+            let status = ffi_generate(initial_shape_wrapper_ptr_vec.as_ptr(),
+                                      initial_shape_wrapper_ptr_vec.len(),
+                                      occlusion_handles,
+                                      encoders_ptr_vec.as_ptr(), encoders_ptr_vec.len(),
+                                      encoder_options_ptr_vec,
+                                      callbacks_binding_ptr,
+                                      cache,
+                                      occl_set,
+                                      generate_options);
+
+            return status;
         }
     }
 
@@ -426,22 +602,22 @@ pub mod prt {
         fn prt_get_version() {
             unsafe {
                 let ver = &*ffi_get_version();
-                print_and_assert_cstring("prt::Version::mName", ver.name, "ArcGIS Procedural Runtime");
-                print_and_assert_cstring("prt::Version::mVersion", ver.version, "2.7.8538");
-                print_and_assert_cstring("prt::Version::mBuildConfig", ver.build_config, "PRT_BC_REL");
-                print_and_assert_cstring("prt::Version::mBuildOS", ver.build_os, "linux");
-                print_and_assert_cstring("prt::Version::mBuildArch", ver.build_arch, "x86_64");
-                print_and_assert_cstring("prt::Version::mBuildTC", ver.build_tc, "PRT_TC_GCC93");
-                print_and_assert_cstring("prt::Version::mBuildDate", ver.build_date, "2022-10-04 15:48");
+                assert_cstring("prt::Version::mName", ver.name, "ArcGIS Procedural Runtime");
+                assert_cstring("prt::Version::mVersion", ver.version, "2.7.8538");
+                assert_cstring("prt::Version::mBuildConfig", ver.build_config, "PRT_BC_REL");
+                assert_cstring("prt::Version::mBuildOS", ver.build_os, "linux");
+                assert_cstring("prt::Version::mBuildArch", ver.build_arch, "x86_64");
+                assert_cstring("prt::Version::mBuildTC", ver.build_tc, "PRT_TC_GCC93");
+                assert_cstring("prt::Version::mBuildDate", ver.build_date, "2022-10-04 15:48");
 
                 assert_wcstring("prt::Version::mwName", ver.name_w, "ArcGIS Procedural Runtime");
                 assert_wcstring("prt::Version::mwBuildDate", ver.build_date_w, "2022-10-04 15:48");
 
-                print_and_assert_int("prt::Version::mCGAVersionMajor", ver.cga_version_major, 2022);
-                print_and_assert_int("prt::Version::mCGAVersionMinor", ver.cga_version_minor, 1);
+                assert_int("prt::Version::mCGAVersionMajor", ver.cga_version_major, 2022);
+                assert_int("prt::Version::mCGAVersionMinor", ver.cga_version_minor, 1);
 
-                print_and_assert_int("prt::Version::mCGACVersionMajor", ver.cgac_version_major, 1);
-                print_and_assert_int("prt::Version::mCGACVersionMinor", ver.cgac_version_minor, 19);
+                assert_int("prt::Version::mCGACVersionMajor", ver.cgac_version_major, 1);
+                assert_int("prt::Version::mCGACVersionMinor", ver.cgac_version_minor, 19);
             }
         }
 
@@ -452,6 +628,13 @@ pub mod prt {
                 let status_description = crate::helpers::from_char_ptr_to_string(status_description_cchar_ptr);
                 assert_eq!(status_description, "Out of memory.");
             }
+        }
+
+        #[test]
+        fn create_attribute_map() {
+            let mut map = collections::HashMap::new();
+            map.insert("foo".to_string(), PrimitiveType::String("bar".to_string()));
+            assert_eq!(map.get("foo"), Some(&PrimitiveType::String("bar".to_string())));
         }
     }
 }
