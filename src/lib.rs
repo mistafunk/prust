@@ -18,10 +18,11 @@ mod helpers {
         };
     }
 
+    // TODO: deduplicate with get_dependencies_path in build.rs
     pub fn get_cesdk_path() -> path::PathBuf {
-        let crate_root = path::PathBuf::from(std::env::var("CARGO_MANIFEST_DIR")
-            .expect("CARGO_MANIFEST_DIR not set"));
-        let deps_path = crate_root.join("deps");
+        let crate_root = path::PathBuf::from(std::env::var("OUT_DIR")
+            .expect("env var OUT_DIR not set"));
+        let deps_path = crate_root.join("prust_custom_deps");
         let cesdk_path_entry = fs::read_dir(deps_path)
             .expect("cannot read deps dir")
             .filter(|p| p.is_ok() && p.as_ref().unwrap().file_type().unwrap().is_dir())
