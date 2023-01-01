@@ -3,13 +3,14 @@ name = "prust"
 version = "0.1.1"
 edition = "2021"
 build = "build.rs"
+links = "com.esri.prt.core"
 authors = ["Simon Haegler <shaegler@esri.com>"]
 description = "Rust bindings for the Procedural Runtime of ArcGIS CityEngine."
 repository = "https://github.com/mistafunk/prust"
 homepage = "https://github.com/mistafunk/prust"
 license = "Apache-2.0"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+categories = ["api-bindings"]
+keywords = ["CityEngine", "PRT", "CGA", "ArcGIS", "Esri"]
 
 [dependencies]
 libc = "0.2.139"
