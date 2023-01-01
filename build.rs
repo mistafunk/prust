@@ -1,14 +1,15 @@
+use std::env;
 use std::io::Write;
 use std::path::PathBuf;
 use std::process::Command;
 
-fn get_root_path() -> PathBuf {
-    return PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR not set"));
+fn get_out_path() -> PathBuf {
+    return PathBuf::from(env::var("OUT_DIR").expect("cannot get OUT_DIR env var"));
 }
 
 fn get_dependencies_path() -> PathBuf { // TODO: make static
-    let root_path = get_root_path();
-    let deps = root_path.join("deps");
+    let root_path = get_out_path();
+    let deps = root_path.join("prust_custom_deps");
     if !deps.exists() {
         std::fs::create_dir(deps.as_path()).expect("could not create deps directory");
     }
