@@ -1,6 +1,5 @@
-use std::ffi::c_char;
-use prust_manual::prt;
-use prust_manual::prt::LogHandler;
+use prust::prt;
+use prust::prt::LogHandler;
 
 // note: these tests only work single threaded ATM
 

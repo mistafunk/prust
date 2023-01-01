@@ -207,7 +207,7 @@ pub mod prt {
     }
 
     pub fn remove_log_handler<T>(log_handler: &mut Box<T>) where T: LogHandler {
-        unsafe extern "C" fn handle_log_event<T>(context: *mut T, cmsg: *const c_char)
+        unsafe extern "C" fn handle_log_event<T>(_context: *mut T, _cmsg: *const c_char)
             where T: LogHandler
         {}
 
