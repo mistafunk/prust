@@ -3,6 +3,10 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::process::Command;
 
+const CESDK_REPO_URL: &str = "https://github.com/Esri/cityengine-sdk";
+const CESDK_VERSION: &str = "2.7.8538";
+const CESDK_CLASSIFIER: &str = "rhel7-gcc93-x86_64-rel-opt"; // TODO: add support for windows
+
 fn get_out_path() -> PathBuf {
     return PathBuf::from(env::var("OUT_DIR").expect("cannot get OUT_DIR env var"));
 }
@@ -40,8 +44,10 @@ fn download(my_url: &url::Url) -> PathBuf {
 }
 
 fn main() {
-    let cesdk_archive_url = url::Url::parse("https://github.com/Esri/cityengine-sdk/releases/download/2.7.8538/esri_ce_sdk-2.7.8538-rhel7-gcc93-x86_64-rel-opt.zip");
-    let cesdk_root_path = download(&cesdk_archive_url.unwrap());
+    let cesdk_url_string = format!("{b}/releases/download/{v}/esri_ce_sdk-{v}-{c}.zip",
+                                   b = CESDK_REPO_URL, v = CESDK_VERSION, c = CESDK_CLASSIFIER);
+    let cesdk_url = url::Url::parse(&cesdk_url_string);
+    let cesdk_root_path = download(&cesdk_url.unwrap());
     let cesdk_bin_path = cesdk_root_path.join("bin");
 
     // patching rpath in cesdk on linux so core finds glutess
