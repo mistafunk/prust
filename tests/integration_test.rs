@@ -39,3 +39,13 @@ fn test_init() {
     let prt_context = prt::init(None, Some(prt::LogLevel::LOG_INFO));
     assert!(prt_context.is_ok());
 }
+
+#[test]
+fn test_version() {
+    let prt_version_res = prt::get_version();
+    assert!(prt_version_res.is_ok());
+    let prt_version = prt_version_res.ok().unwrap();
+    assert_eq!(prt_version.version_major, 2);
+    assert_eq!(prt_version.version_minor, 7);
+    assert_eq!(prt_version.version_string, "2.7.8538");
+}

@@ -1,12 +1,19 @@
 mod helpers {
-    use std::{fs, path};
+    use std::{ffi, fs, path};
+
+    pub(crate) fn from_cchar_ptr_to_str(cchar_ptr: *const ffi::c_char) -> String {
+        let val_cstr = unsafe { ffi::CStr::from_ptr(cchar_ptr) };
+        return val_cstr.to_str().unwrap_or_default().to_string();
+    }
 
     pub fn to_wchar_vec(msg: &str) -> Vec<libc::wchar_t> {
         return if cfg!(linux) {
-            let wide_msg = widestring::U32CString::from_str(msg).expect("cannot convert to UTF-32/wchar_t");
+            let wide_msg = widestring::U32CString::from_str(msg)
+                .expect("cannot convert to UTF-32/wchar_t");
             wide_msg.into_vec_with_nul().iter().map(|&e| e as libc::wchar_t).collect()
         } else {
-            let wide_msg = widestring::U16CString::from_str(msg).expect("cannot convert to UTF-16/wchar_t");
+            let wide_msg = widestring::U16CString::from_str(msg)
+                .expect("cannot convert to UTF-16/wchar_t");
             wide_msg.into_vec_with_nul().iter().map(|&e| e as libc::wchar_t).collect()
         };
     }
@@ -15,9 +22,12 @@ mod helpers {
         let crate_root = path::PathBuf::from(std::env::var("CARGO_MANIFEST_DIR")
             .expect("CARGO_MANIFEST_DIR not set"));
         let deps_path = crate_root.join("deps");
-        let cesdk_path_entry = fs::read_dir(deps_path).expect("cannot read deps dir")
+        let cesdk_path_entry = fs::read_dir(deps_path)
+            .expect("cannot read deps dir")
             .filter(|p| p.is_ok() && p.as_ref().unwrap().file_type().unwrap().is_dir())
-            .find(|p| p.as_ref().unwrap().path().file_name().unwrap().to_str().unwrap().starts_with("esri_ce_sdk-"));
+            .find(|p| p.as_ref().unwrap()
+                .path().file_name().unwrap()
+                .to_str().unwrap().starts_with("esri_ce_sdk-"));
         return cesdk_path_entry.expect("could not find cesdk lib dir").unwrap().path();
     }
 }
@@ -25,7 +35,7 @@ mod helpers {
 pub mod prt {
     pub use std::{fs, path};
     use std::ffi;
-    use std::ptr::null;
+    use std::ptr;
 
     #[allow(non_camel_case_types)]
     #[allow(dead_code)]
@@ -99,6 +109,11 @@ pub mod prt {
         LOG_NO = 1000,
     }
 
+    pub struct PrtError {
+        pub message: String,
+        pub status: Option<Status>,
+    }
+
     #[repr(C)]
     struct Version {
         version_major: i32,
@@ -134,6 +149,84 @@ pub mod prt {
         cgac_version_w: *const i32,
     }
 
+    extern "C" {
+        #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+        #[link_name = "\u{1}_ZN3prt10getVersionEv"]
+        fn ffi_get_version() -> *const Version;
+    }
+
+    pub struct PrtVersion {
+        pub version_major: i32,
+        pub version_minor: i32,
+        pub version_build: i32,
+        pub version_string: String,
+
+        pub name: String,
+        pub full_name: String,
+
+        pub build_config: String,
+        pub build_os: String,
+        pub build_arch: String,
+        pub build_tc: String,
+        pub build_date: String,
+
+        pub cga_version_major: i32,
+        pub cga_version_minor: i32,
+        pub cga_version_string: String,
+
+        pub cgac_version_major: i32,
+        pub cgac_version_minor: i32,
+        pub cgac_version_string: String,
+    }
+
+    pub fn get_version() -> Result<PrtVersion, PrtError> {
+        unsafe {
+            let version_ptr = ffi_get_version();
+            if version_ptr == ptr::null() {
+                return Err(PrtError {
+                    message: "Could not get PRT version info".to_string(),
+                    status: None,
+                });
+            }
+            let version_ref = &*version_ptr;
+            let ver = PrtVersion {
+                version_major: version_ref.version_major,
+                version_minor: version_ref.version_minor,
+                version_build: version_ref.version_build,
+                version_string: crate::helpers::from_cchar_ptr_to_str(version_ref.version),
+                name: crate::helpers::from_cchar_ptr_to_str(version_ref.name),
+                full_name: crate::helpers::from_cchar_ptr_to_str(version_ref.full_name),
+                build_config: crate::helpers::from_cchar_ptr_to_str(version_ref.build_config),
+                build_os: crate::helpers::from_cchar_ptr_to_str(version_ref.build_os),
+                build_arch: crate::helpers::from_cchar_ptr_to_str(version_ref.build_arch),
+                build_tc: crate::helpers::from_cchar_ptr_to_str(version_ref.build_tc),
+                build_date: crate::helpers::from_cchar_ptr_to_str(version_ref.build_date),
+                cga_version_major: version_ref.cga_version_major,
+                cga_version_minor: version_ref.cga_version_minor,
+                cga_version_string: crate::helpers::from_cchar_ptr_to_str(version_ref.cga_version),
+                cgac_version_major: version_ref.cgac_version_major,
+                cgac_version_minor: version_ref.cgac_version_minor,
+                cgac_version_string: crate::helpers::from_cchar_ptr_to_str(version_ref.cgac_version),
+            };
+            Ok(ver)
+        }
+    }
+
+    extern "C" {
+        #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+        #[link_name = "\u{1}_ZN3prt20getStatusDescriptionENS_6StatusE"]
+        fn ffi_get_status_description(input: i32) -> *const ffi::c_char;
+    }
+
+    pub fn get_status_description(status: Status) -> String {
+        unsafe {
+            let status_description_cchar_ptr = ffi_get_status_description(status as i32);
+            let status_description_cstr = ffi::CStr::from_ptr(status_description_cchar_ptr);
+            let status_description = status_description_cstr.to_str().unwrap_or_default();
+            return String::from(status_description);
+        }
+    }
+
     #[repr(C)]
     struct Object {
         dummy: i8, // to avoid the "unsafe FFI object" warning
@@ -148,14 +241,6 @@ pub mod prt {
         #[link_name = "\u{1}_ZN3prt4initEPKPKwmNS_8LogLevelEPNS_6StatusE"]
         fn ffi_init(prt_plugins: *const *const libc::wchar_t, prt_plugins_count: libc::size_t,
                     log_level: LogLevel) -> *const Object;
-
-        #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-        #[link_name = "\u{1}_ZN3prt10getVersionEv"]
-        fn ffi_get_version() -> *const Version;
-
-        #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-        #[link_name = "\u{1}_ZN3prt20getStatusDescriptionENS_6StatusE"]
-        fn ffi_get_status_description(input: i32) -> *const ffi::c_char;
     }
 
     pub struct PrtContext {
@@ -171,20 +256,6 @@ pub mod prt {
         }
     }
 
-    pub struct PrtError {
-        pub message: String,
-        pub status: Option<Status>,
-    }
-
-    pub fn get_status_message(status: Status) -> String {
-        unsafe {
-            let status_description_cchar_ptr = ffi_get_status_description(status as i32);
-            let status_description_cstr = ffi::CStr::from_ptr(status_description_cchar_ptr);
-            let status_description = status_description_cstr.to_str().unwrap_or_default();
-            return String::from(status_description);
-        }
-    }
-
     pub fn init(_extra_plugin_paths: Option<Vec<path::PathBuf>>,
                 initial_minimal_log_level: Option<LogLevel>) -> Result<Box<PrtContext>, PrtError>
     {
@@ -192,7 +263,7 @@ pub mod prt {
         let cesdk_lib_path = crate::helpers::get_cesdk_path().join("lib");
         if !cesdk_lib_path.exists() {
             return Err(PrtError {
-                message: format!("Error while loading built-in extensions: {}", get_status_message(Status::STATUS_FILE_NOT_FOUND)),
+                message: format!("Error while loading built-in extensions: {}", get_status_description(Status::STATUS_FILE_NOT_FOUND)),
                 status: Some(Status::STATUS_FILE_NOT_FOUND),
             });
         }
@@ -206,13 +277,13 @@ pub mod prt {
         unsafe {
             let prt_handle = ffi_init(plugins_dirs.as_ptr(),
                                       plugins_dirs.len(), log_level.unwrap());
-            return if prt_handle != null() {
+            return if prt_handle != ptr::null() {
                 println!("PRT has been initialized.");
                 Ok(Box::new(PrtContext { handle: prt_handle }))
             } else {
                 // TODO: add details and prt::Status handling
                 Err(PrtError {
-                    message: get_status_message(Status::STATUS_UNSPECIFIED_ERROR),
+                    message: get_status_description(Status::STATUS_UNSPECIFIED_ERROR),
                     status: Some(Status::STATUS_UNSPECIFIED_ERROR),
                 })
             };
@@ -266,19 +337,6 @@ pub mod prt {
         }
     }
 
-    extern "C" {
-        #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-        #[link_name = "\u{1}_ZN3prt3logEPKwNS_8LogLevelE"]
-        fn prt_log(msg: *const libc::wchar_t, level: LogLevel);
-    }
-
-    pub fn log(msg: &str, level: LogLevel) {
-        let cs_vec = crate::helpers::to_wchar_vec(msg);
-        unsafe {
-            prt_log(cs_vec.as_ptr(), level);
-        }
-    }
-
     pub fn remove_log_handler<T>(log_handler: &mut Box<T>) where T: LogHandler {
         unsafe extern "C" fn handle_log_event<T>(_context: *mut T, _cmsg: *const ffi::c_char)
             where T: LogHandler
@@ -293,6 +351,19 @@ pub mod prt {
         let binding_ptr: *mut ffi::c_void = Box::into_raw(binding) as *mut ffi::c_void;
         unsafe {
             ffi_remove_log_handler(binding_ptr);
+        }
+    }
+
+    extern "C" {
+        #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+        #[link_name = "\u{1}_ZN3prt3logEPKwNS_8LogLevelE"]
+        fn prt_log(msg: *const libc::wchar_t, level: LogLevel);
+    }
+
+    pub fn log(msg: &str, level: LogLevel) {
+        let cs_vec = crate::helpers::to_wchar_vec(msg);
+        unsafe {
+            prt_log(cs_vec.as_ptr(), level);
         }
     }
 
@@ -318,13 +389,8 @@ pub mod prt {
             return String::from_utf16(raw_utf16.as_slice()).unwrap_or_default();
         }
 
-        fn from_cchar_ptr_to_str(cchar_ptr: *const ffi::c_char) -> String {
-            let val_cstr = unsafe { ffi::CStr::from_ptr(cchar_ptr) };
-            return val_cstr.to_str().unwrap_or_default().to_string(); // this is probably far from ideal ;-)
-        }
-
         fn print_and_assert_cstring(prefix: &str, raw_val: *const ffi::c_char, expected_val: &str) {
-            let string_val = from_cchar_ptr_to_str(raw_val);
+            let string_val = crate::helpers::from_cchar_ptr_to_str(raw_val);
             println!("{} = {}", prefix, string_val);
             assert_eq!(string_val, expected_val);
         }
