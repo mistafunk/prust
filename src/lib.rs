@@ -1,12 +1,38 @@
 mod helpers {
     use std::{ffi, fs, path};
 
-    pub(crate) fn from_cchar_ptr_to_str(cchar_ptr: *const ffi::c_char) -> String {
+    pub(crate) fn from_char_ptr_to_string(cchar_ptr: *const ffi::c_char) -> String {
         let val_cstr = unsafe { ffi::CStr::from_ptr(cchar_ptr) };
         return val_cstr.to_str().unwrap_or_default().to_string();
     }
 
-    pub fn to_wchar_vec(msg: &str) -> Vec<libc::wchar_t> {
+    #[cfg(target_os = "linux")]
+    fn wchar_is_utf32() -> bool {
+        true
+    }
+
+    #[cfg(target_os = "windows")]
+    fn wchar_is_utf32() -> bool {
+        false
+    }
+
+    pub fn from_wchar_ptr_to_string(ptr: *const libc::wchar_t) -> String {
+        assert!(!ptr.is_null());
+        let ptr_len = unsafe { libc::wcslen(ptr) };
+        assert!(ptr_len > 0);
+        return if wchar_is_utf32() {
+            let widestring_result = unsafe { widestring::U32CString::from_ptr(ptr as *const u32, ptr_len) };
+            let cstring = widestring_result.expect("could not convert wchar_t array to UTF32 string");
+            cstring.to_string().expect("could not convert to Rust string")
+        }
+        else {
+            let widestring_result = unsafe { widestring::U16CString::from_ptr(ptr as *const u16, ptr_len) };
+            let cstring = widestring_result.expect("could not convert wchar_t array to UTF16 string");
+            cstring.to_string().expect("could not convert to Rust string")
+        }
+    }
+
+    pub fn from_string_to_wchar_vec(msg: &str) -> Vec<libc::wchar_t> {
         return if cfg!(linux) {
             let wide_msg = widestring::U32CString::from_str(msg)
                 .expect("cannot convert to UTF-32/wchar_t");
@@ -195,20 +221,20 @@ pub mod prt {
                 version_major: version_ref.version_major,
                 version_minor: version_ref.version_minor,
                 version_build: version_ref.version_build,
-                version_string: crate::helpers::from_cchar_ptr_to_str(version_ref.version),
-                name: crate::helpers::from_cchar_ptr_to_str(version_ref.name),
-                full_name: crate::helpers::from_cchar_ptr_to_str(version_ref.full_name),
-                build_config: crate::helpers::from_cchar_ptr_to_str(version_ref.build_config),
-                build_os: crate::helpers::from_cchar_ptr_to_str(version_ref.build_os),
-                build_arch: crate::helpers::from_cchar_ptr_to_str(version_ref.build_arch),
-                build_tc: crate::helpers::from_cchar_ptr_to_str(version_ref.build_tc),
-                build_date: crate::helpers::from_cchar_ptr_to_str(version_ref.build_date),
+                version_string: crate::helpers::from_char_ptr_to_string(version_ref.version),
+                name: crate::helpers::from_char_ptr_to_string(version_ref.name),
+                full_name: crate::helpers::from_char_ptr_to_string(version_ref.full_name),
+                build_config: crate::helpers::from_char_ptr_to_string(version_ref.build_config),
+                build_os: crate::helpers::from_char_ptr_to_string(version_ref.build_os),
+                build_arch: crate::helpers::from_char_ptr_to_string(version_ref.build_arch),
+                build_tc: crate::helpers::from_char_ptr_to_string(version_ref.build_tc),
+                build_date: crate::helpers::from_char_ptr_to_string(version_ref.build_date),
                 cga_version_major: version_ref.cga_version_major,
                 cga_version_minor: version_ref.cga_version_minor,
-                cga_version_string: crate::helpers::from_cchar_ptr_to_str(version_ref.cga_version),
+                cga_version_string: crate::helpers::from_char_ptr_to_string(version_ref.cga_version),
                 cgac_version_major: version_ref.cgac_version_major,
                 cgac_version_minor: version_ref.cgac_version_minor,
-                cgac_version_string: crate::helpers::from_cchar_ptr_to_str(version_ref.cgac_version),
+                cgac_version_string: crate::helpers::from_char_ptr_to_string(version_ref.cgac_version),
             };
             Ok(ver)
         }
@@ -271,7 +297,7 @@ pub mod prt {
                 status: Some(Status::STATUS_FILE_NOT_FOUND),
             });
         }
-        let cesdk_lib_dir_wchar_vec = crate::helpers::to_wchar_vec(cesdk_lib_path.to_str().unwrap());
+        let cesdk_lib_dir_wchar_vec = crate::helpers::from_string_to_wchar_vec(cesdk_lib_path.to_str().unwrap());
 
         // append additional extension dirs
         // TODO: handle extra_plugin_paths
@@ -368,7 +394,7 @@ pub mod prt {
     }
 
     pub fn log(msg: &str, level: LogLevel) {
-        let cs_vec = crate::helpers::to_wchar_vec(msg);
+        let cs_vec = crate::helpers::from_string_to_wchar_vec(msg);
         unsafe {
             prt_log(cs_vec.as_ptr(), level);
         }
@@ -378,38 +404,22 @@ pub mod prt {
     mod tests {
         use super::*;
 
-        fn as_vec_u16(v: &[i32]) -> Vec<u16> {
-            let mut out: Vec<u16> = Vec::with_capacity(v.len());
-            for i in v {
-                out.push(*i as u16);
-            }
-            return out;
+        fn assert_cstring(prefix: &str, raw_val: *const ffi::c_char, expected_val: &str) {
+            let val = crate::helpers::from_char_ptr_to_string(raw_val);
+            assert_string(prefix, val, expected_val);
         }
 
-        #[cfg(all(target_os = "linux", target_arch = "x86_64"))] // assuming 4 bytes for wchar_t
-        unsafe fn as_string_from_wchar_array(ptr: *const libc::wchar_t) -> String {
-            assert!(!ptr.is_null());
-            let ptr_len = libc::wcslen(ptr);
-            assert!(ptr_len > 0);
-            let ptr_slice: &[i32] = std::slice::from_raw_parts(ptr, ptr_len as usize);
-            let raw_utf16: Vec<u16> = as_vec_u16(ptr_slice);
-            return String::from_utf16(raw_utf16.as_slice()).unwrap_or_default();
+        fn assert_wcstring(prefix: &str, raw_val: *const libc::wchar_t, expected_val: &str) {
+            let val = crate::helpers::from_wchar_ptr_to_string(raw_val);
+            assert_string(prefix, val, expected_val);
         }
 
-        fn print_and_assert_cstring(prefix: &str, raw_val: *const ffi::c_char, expected_val: &str) {
-            let string_val = crate::helpers::from_cchar_ptr_to_str(raw_val);
-            println!("{} = {}", prefix, string_val);
-            assert_eq!(string_val, expected_val);
+        fn assert_string(prefix: &str, raw_val: String, expected_val: &str) {
+            assert_eq!(raw_val, expected_val, "{}: assertion error", prefix);
         }
 
-        fn print_and_assert_string(prefix: &str, raw_val: String, expected_val: &str) {
-            println!("{} = {}", prefix, raw_val);
-            assert_eq!(raw_val, expected_val);
-        }
-
-        fn print_and_assert_int(prefix: &str, raw_val: i32, expected_val: i32) {
-            println!("{} = {}", prefix, raw_val);
-            assert_eq!(raw_val, expected_val);
+        fn assert_int(prefix: &str, raw_val: i32, expected_val: i32) {
+            assert_eq!(raw_val, expected_val, "{}: assertion error", prefix);
         }
 
         #[test]
@@ -424,11 +434,8 @@ pub mod prt {
                 print_and_assert_cstring("prt::Version::mBuildTC", ver.build_tc, "PRT_TC_GCC93");
                 print_and_assert_cstring("prt::Version::mBuildDate", ver.build_date, "2022-10-04 15:48");
 
-                let name = as_string_from_wchar_array(ver.name_w);
-                print_and_assert_string("prt::Version::mwName", name, "ArcGIS Procedural Runtime");
-
-                let build_date = as_string_from_wchar_array(ver.build_date_w);
-                print_and_assert_string("prt::Version::mwBuildDate", build_date, "2022-10-04 15:48");
+                assert_wcstring("prt::Version::mwName", ver.name_w, "ArcGIS Procedural Runtime");
+                assert_wcstring("prt::Version::mwBuildDate", ver.build_date_w, "2022-10-04 15:48");
 
                 print_and_assert_int("prt::Version::mCGAVersionMajor", ver.cga_version_major, 2022);
                 print_and_assert_int("prt::Version::mCGAVersionMinor", ver.cga_version_minor, 1);
@@ -441,12 +448,8 @@ pub mod prt {
         #[test]
         fn prt_get_status_description() {
             unsafe {
-                let status_description_cchar_ptr = ffi_get_status_description(2);
-
-                let status_description_cstr = ffi::CStr::from_ptr(status_description_cchar_ptr);
-                let status_description = status_description_cstr.to_str().unwrap_or_default();
-
-                println!("prt::getStatusDescription(2) = {}", status_description);
+                let status_description_cchar_ptr = ffi_get_status_description(Status::STATUS_OUT_OF_MEM);
+                let status_description = crate::helpers::from_char_ptr_to_string(status_description_cchar_ptr);
                 assert_eq!(status_description, "Out of memory.");
             }
         }
