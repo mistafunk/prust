@@ -1,7 +1,24 @@
+use std::ffi;
 use prust::prt;
-use prust::prt::LogHandler;
+use prust::prt::{EncoderOptions, InitialShape, LogHandler};
+use ctor::ctor;
+use lazy_static::lazy_static;
 
 // note: these tests only work single threaded ATM
+
+lazy_static! {
+    static ref PRT_CONTEXT: Box<prt::PrtContext> = {
+        let init_result = prt::init(None, Some(prt::LogLevel::LOG_INFO));
+        init_result.unwrap()
+    };
+}
+
+#[ctor]
+fn initialize() {
+    let prt_context = &PRT_CONTEXT;
+    println!("PRT has been initialized: {}", prt_context.as_ref());
+}
+
 
 #[test]
 fn test_default_log_handler() {
@@ -32,12 +49,31 @@ fn test_custom_log_handler() {
 }
 
 #[test]
-fn test_init() {
+fn test_generate() {
     let mut log_handler = Box::new(prt::DefaultLogHandler::default());
     prt::add_log_handler(&mut log_handler);
 
-    let prt_context = prt::init(None, Some(prt::LogLevel::LOG_INFO));
-    assert!(prt_context.is_ok());
+    let rule_package_dir = format!("rpk:file:{}/tests/extrude.rpk!/bin/extrude.cgb",
+                                   env!("CARGO_MANIFEST_DIR"));
+
+    let mut initial_shapes: Vec<Box<prt::InitialShape>> = Vec::default();
+    initial_shapes.push(Box::new(InitialShape {
+        vertex_coords: vec![0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0, 0.0, 0.0],
+        indices: vec![0, 1, 2, 3],
+        face_counts: vec![4],
+        rule_file: ffi::CString::new(rule_package_dir).unwrap(),
+        start_rule: ffi::CString::new("Default$Init").unwrap(), // TODO: hide ffi usage
+        random_seed: 0,
+        name: ffi::CString::new("rust_shape").unwrap(), // TODO: hide ffi usage
+    }));
+
+    let encoders = vec!["com.esri.prt.codecs.OBJEncoder".to_string()];
+    let encoder_options = vec![EncoderOptions::default()];
+    let mut callbacks = Box::new(prt::FileCallbacks::default());
+
+    let generate_status = prt::generate(&initial_shapes, &encoders, &encoder_options,
+                                        &mut callbacks);
+    assert_eq!(generate_status, prt::Status::STATUS_OK);
 }
 
 #[test]
