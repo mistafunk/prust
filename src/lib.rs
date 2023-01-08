@@ -3,7 +3,6 @@ pub mod prt {
     use std::ffi;
     use std::fmt::{Display, Formatter};
     use std::ptr;
-    use std::ptr::{null, null_mut};
     use derive_builder::Builder;
 
     #[derive(Debug)]
@@ -12,26 +11,8 @@ pub mod prt {
         pub status: Option<Status>,
     }
 
-    #[repr(C)]
-    struct Object {
-        dummy: i8, // to avoid the "unsafe FFI object" warning
-    }
-
-    impl Object {
-        fn destroy(&self) {}
-    }
-
-    extern "C" {
-        #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-        #[link_name = "\u{1}_ZN3prt4initEPKPKwmNS_8LogLevelEPNS_6StatusE"]
-        fn ffi_init(prt_plugins: *const *const libc::wchar_t,
-                    prt_plugins_count: libc::size_t,
-                    log_level: LogLevel,
-                    status: *mut Status) -> *const Object;
-    }
-
     pub struct PrtContext {
-        handle: *const Object,
+        handle: *const prt_ffi::Object,
     }
 
     unsafe impl Sync for PrtContext {} // handle is thread-safe
@@ -39,7 +20,7 @@ pub mod prt {
     impl Drop for PrtContext {
         fn drop(&mut self) {
             unsafe {
-                Object::destroy(&*self.handle);
+                prt_ffi::Object::destroy(&*self.handle);
             }
         }
     }
@@ -70,10 +51,10 @@ pub mod prt {
         let log_level = initial_minimal_log_level.or(Some(LogLevel::LOG_WARNING));
         unsafe {
             let mut status = Status::STATUS_UNSPECIFIED_ERROR;
-            let prt_handle = ffi_init(plugins_dirs.as_ptr(),
-                                      plugins_dirs.len(),
-                                      log_level.unwrap(),
-                                      ptr::addr_of_mut!(status));
+            let prt_handle = prt_ffi::ffi_init(plugins_dirs.as_ptr(),
+                                               plugins_dirs.len(),
+                                               log_level.unwrap(),
+                                               ptr::addr_of_mut!(status));
             return if (prt_handle != ptr::null()) && (status == Status::STATUS_OK) {
                 Ok(Box::new(PrtContext { handle: prt_handle }))
             } else {
@@ -102,16 +83,6 @@ pub mod prt {
 
     pub type EncoderOptions = collections::HashMap<String, PrimitiveType>;
 
-    #[repr(C)]
-    struct AttributeMap {
-        dummy: i32,
-    }
-
-    #[repr(C)]
-    struct ResolveMap {
-        dummy: i32,
-    }
-
     #[derive(Clone, Debug)]
     pub enum KeyOrUri {
         Undefined,
@@ -138,7 +109,7 @@ pub mod prt {
             match self {
                 KeyOrUri::Undefined => write!(f, "Undefined ResolveMap key or Uri!"),
                 KeyOrUri::Key(k) => write!(f, "{}", k),
-                KeyOrUri::Uri(u) => write!(f, "{}", u.to_string()),
+                KeyOrUri::Uri(u) => write!(f, "{}", u),
             }
         }
     }
@@ -155,95 +126,12 @@ pub mod prt {
         name: String,
     }
 
-    #[repr(C)]
-    struct InitialShapeWrapper {
-        // see cpp/bindings.h
-        vertex_coords: *const f64,
-        vertex_coords_count: libc::size_t,
-        indices: *const u32,
-        indices_count: libc::size_t,
-        face_counts: *const u32,
-        face_counts_count: libc::size_t,
-
-        rule_file: *const ffi::c_char,
-        start_rule: *const ffi::c_char,
-        random_seed: i32,
-        name: *const ffi::c_char,
-        attributes: *const AttributeMap,
-        resolve_map: *const ResolveMap,
-    }
-
-    struct InitialShapeAdaptor<'a> {
-        initial_shape: &'a Box<InitialShape>,
-
-        ffi_rule_file_owner: ffi::CString,
-        ffi_start_rule_owner: ffi::CString,
-        ffi_name_owner: ffi::CString,
-    }
-
-    impl InitialShapeAdaptor<'_> {
-        fn adapt(initial_shape: &Box<InitialShape>) -> InitialShapeAdaptor {
-            InitialShapeAdaptor {
-                initial_shape,
-                ffi_rule_file_owner: initial_shape.rule_file.ffi_to_cstring(),
-                ffi_start_rule_owner: ffi::CString::new(initial_shape.start_rule.as_bytes()).unwrap(),
-                ffi_name_owner: ffi::CString::new(initial_shape.name.as_bytes()).unwrap(),
-            }
-        }
-
-        fn get_ffi_wrapper(&self) -> InitialShapeWrapper {
-            return InitialShapeWrapper {
-                vertex_coords: self.initial_shape.vertex_coords.as_ptr(),
-                vertex_coords_count: self.initial_shape.vertex_coords.len(),
-                indices: self.initial_shape.indices.as_ptr(),
-                indices_count: self.initial_shape.indices.len(),
-                face_counts: self.initial_shape.face_counts.as_ptr(),
-                face_counts_count: self.initial_shape.face_counts.len(),
-                rule_file: self.ffi_rule_file_owner.as_ptr(),
-                start_rule: self.ffi_start_rule_owner.as_ptr(),
-                random_seed: self.initial_shape.random_seed,
-                name: self.ffi_name_owner.as_ptr(),
-                attributes: null(), // TODO
-                resolve_map: null(), // TODO
-            };
-        }
-    }
-
     pub trait Callbacks {}
-
-    #[repr(C)]
-    struct AbstractCallbacksBinding<T> where T: Callbacks {
-        context: *mut T,
-    }
 
     #[derive(Default)]
     pub struct FileCallbacks {}
 
     impl Callbacks for FileCallbacks {}
-
-    #[repr(C)]
-    struct Cache {
-        dummy: i32,
-    }
-
-    #[repr(C)]
-    struct OcclusionSet {
-        dummy: i32,
-    }
-
-    #[link(name = "bindings", kind = "static")]
-    extern "C" {
-        fn ffi_generate(initial_shapes: *const *const InitialShapeWrapper,
-                        initial_shapes_count: libc::size_t,
-                        occlusion_handles: *const u64, // see prt::OcclusionSet::Handle
-                        encoders: *const *const libc::wchar_t,
-                        encoders_count: libc::size_t,
-                        encoder_options: *const AttributeMap,
-                        callbacks: *mut ffi::c_void,
-                        cache: *mut Cache,
-                        occl_set: *const OcclusionSet,
-                        generate_options: *const AttributeMap) -> Status;
-    }
 
     pub fn generate<C>(initial_shapes: &Vec<Box<InitialShape>>,
                        encoders: &Vec<String>,
@@ -257,19 +145,19 @@ pub mod prt {
 
         // wrap the initial shapes into an adaptor to have a mutable place
         // where we can hold any owners of C pointers
-        let mut initial_shape_adaptors: Vec<InitialShapeAdaptor> = initial_shapes.iter()
-            .map(|x| InitialShapeAdaptor::adapt(x))
+        let mut initial_shape_adaptors: Vec<prt_ffi::InitialShapeAdaptor> = initial_shapes.iter()
+            .map(|x| prt_ffi::InitialShapeAdaptor::adapt(x))
             .collect();
 
-        let initial_shape_wrappers: Vec<InitialShapeWrapper> = initial_shape_adaptors.iter_mut()
-            .map(|x: &mut InitialShapeAdaptor| x.get_ffi_wrapper())
+        let initial_shape_wrappers: Vec<prt_ffi::InitialShapeWrapper> = initial_shape_adaptors.iter_mut()
+            .map(|x: &mut prt_ffi::InitialShapeAdaptor| x.get_ffi_wrapper())
             .collect();
 
-        let initial_shape_wrapper_ptr_vec: Vec<*const InitialShapeWrapper> = initial_shape_wrappers.iter()
-            .map(|x| &*x as *const InitialShapeWrapper)
+        let initial_shape_wrapper_ptr_vec: Vec<*const prt_ffi::InitialShapeWrapper> = initial_shape_wrappers.iter()
+            .map(|x| &*x as *const prt_ffi::InitialShapeWrapper)
             .collect();
 
-        let occlusion_handles: *const u64 = null();
+        let occlusion_handles: *const u64 = ptr::null();
 
         // TODO: probably better to stay UTF-8 on the rust side and convert in the native wrapper
         let encoders_wchar_vec: Vec<Vec<libc::wchar_t>> = encoders.iter()
@@ -277,28 +165,28 @@ pub mod prt {
             .collect();
         let encoders_ptr_vec: Vec<*const libc::wchar_t> = encoders_wchar_vec.iter().map(|x| x.as_ptr()).collect();
 
-        let encoder_options_ptr_vec: *const AttributeMap = null();
+        let encoder_options_ptr_vec: *const prt_ffi::AttributeMap = ptr::null();
 
         let callbacks_context: *mut C = callbacks.as_mut();
-        let callbacks_binding: Box<AbstractCallbacksBinding<C>>
-            = Box::new(AbstractCallbacksBinding { context: callbacks_context });
+        let callbacks_binding: Box<prt_ffi::AbstractCallbacksBinding<C>>
+            = Box::new(prt_ffi::AbstractCallbacksBinding { context: callbacks_context });
         let callbacks_binding_ptr
             = Box::into_raw(callbacks_binding) as *mut ffi::c_void;
 
-        let cache: *mut Cache = null_mut();
-        let occl_set: *const OcclusionSet = null();
-        let generate_options: *const AttributeMap = null();
+        let cache: *mut prt_ffi::Cache = ptr::null_mut();
+        let occl_set: *const prt_ffi::OcclusionSet = ptr::null();
+        let generate_options: *const prt_ffi::AttributeMap = ptr::null();
 
         unsafe {
-            let status = ffi_generate(initial_shape_wrapper_ptr_vec.as_ptr(),
-                                      initial_shape_wrapper_ptr_vec.len(),
-                                      occlusion_handles,
-                                      encoders_ptr_vec.as_ptr(), encoders_ptr_vec.len(),
-                                      encoder_options_ptr_vec,
-                                      callbacks_binding_ptr,
-                                      cache,
-                                      occl_set,
-                                      generate_options);
+            let status = prt_ffi::ffi_generate(initial_shape_wrapper_ptr_vec.as_ptr(),
+                                               initial_shape_wrapper_ptr_vec.len(),
+                                               occlusion_handles,
+                                               encoders_ptr_vec.as_ptr(), encoders_ptr_vec.len(),
+                                               encoder_options_ptr_vec,
+                                               callbacks_binding_ptr,
+                                               cache,
+                                               occl_set,
+                                               generate_options);
 
             return status;
         }
@@ -321,12 +209,6 @@ pub mod prt {
         fn handle_log_event(&mut self, msg: &str);
     }
 
-    #[repr(C)]
-    struct AbstractLogHandlerBinding<T> where T: LogHandler {
-        handle_log_event: unsafe extern fn(*mut T, msg: *const ffi::c_char),
-        context: *mut T,
-    }
-
     #[derive(Default)]
     pub struct DefaultLogHandler {}
 
@@ -334,12 +216,6 @@ pub mod prt {
         fn handle_log_event(&mut self, msg: &str) {
             println!("{}", msg);
         }
-    }
-
-    #[link(name = "bindings", kind = "static")]
-    extern "C" {
-        fn ffi_add_log_handler(log_handler: *mut ffi::c_void);
-        fn ffi_remove_log_handler(log_handler: *mut ffi::c_void);
     }
 
     pub fn add_log_handler<T>(log_handler: &mut Box<T>) where T: LogHandler {
@@ -353,14 +229,14 @@ pub mod prt {
         }
 
         let context: *mut T = log_handler.as_mut();
-        let binding: Box<AbstractLogHandlerBinding<T>> = Box::new(AbstractLogHandlerBinding {
+        let binding: Box<prt_ffi::AbstractLogHandlerBinding<T>> = Box::new(prt_ffi::AbstractLogHandlerBinding {
             handle_log_event,
             context,
         });
 
         let binding_ptr: *mut ffi::c_void = Box::into_raw(binding) as *mut ffi::c_void;
         unsafe {
-            ffi_add_log_handler(binding_ptr);
+            prt_ffi::ffi_add_log_handler(binding_ptr);
         }
     }
 
@@ -370,27 +246,21 @@ pub mod prt {
         {}
 
         let context = log_handler.as_mut() as *mut T;
-        let binding: Box<AbstractLogHandlerBinding<T>> = Box::new(AbstractLogHandlerBinding {
+        let binding: Box<prt_ffi::AbstractLogHandlerBinding<T>> = Box::new(prt_ffi::AbstractLogHandlerBinding {
             handle_log_event,
             context,
         });
 
         let binding_ptr: *mut ffi::c_void = Box::into_raw(binding) as *mut ffi::c_void;
         unsafe {
-            ffi_remove_log_handler(binding_ptr);
+            prt_ffi::ffi_remove_log_handler(binding_ptr);
         }
-    }
-
-    extern "C" {
-        #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-        #[link_name = "\u{1}_ZN3prt3logEPKwNS_8LogLevelE"]
-        fn prt_log(msg: *const libc::wchar_t, level: LogLevel);
     }
 
     pub fn log(msg: &str, level: LogLevel) {
         let cs_vec = crate::helpers::from_string_to_wchar_vec(msg);
         unsafe {
-            prt_log(cs_vec.as_ptr(), level);
+            prt_ffi::prt_log(cs_vec.as_ptr(), level);
         }
     }
 
@@ -455,60 +325,13 @@ pub mod prt {
         STATUS_NO_GEOMETRY,
     }
 
-    extern "C" {
-        #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-        #[link_name = "\u{1}_ZN3prt20getStatusDescriptionENS_6StatusE"]
-        fn ffi_get_status_description(input: Status) -> *const ffi::c_char;
-    }
-
     pub fn get_status_description(status: Status) -> String {
         unsafe {
-            let status_description_cchar_ptr = ffi_get_status_description(status);
+            let status_description_cchar_ptr = prt_ffi::ffi_get_status_description(status);
             let status_description_cstr = ffi::CStr::from_ptr(status_description_cchar_ptr);
             let status_description = status_description_cstr.to_str().unwrap_or_default();
             return String::from(status_description);
         }
-    }
-
-    #[repr(C)]
-    struct Version {
-        version_major: i32,
-        version_minor: i32,
-        version_build: i32,
-
-        name: *const ffi::c_char,
-        full_name: *const ffi::c_char,
-        version: *const ffi::c_char,
-        build_config: *const ffi::c_char,
-        build_os: *const ffi::c_char,
-        build_arch: *const ffi::c_char,
-        build_tc: *const ffi::c_char,
-        build_date: *const ffi::c_char,
-
-        name_w: *const libc::wchar_t,
-        full_name_w: *const libc::wchar_t,
-        version_w: *const libc::wchar_t,
-        build_config_w: *const libc::wchar_t,
-        build_os_w: *const libc::wchar_t,
-        build_arch_w: *const libc::wchar_t,
-        build_tc_w: *const libc::wchar_t,
-        build_date_w: *const libc::wchar_t,
-
-        cga_version_major: i32,
-        cga_version_minor: i32,
-        cga_version: *const ffi::c_char,
-        cga_version_w: *const i32,
-
-        cgac_version_major: i32,
-        cgac_version_minor: i32,
-        cgac_version: *const ffi::c_char,
-        cgac_version_w: *const i32,
-    }
-
-    extern "C" {
-        #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-        #[link_name = "\u{1}_ZN3prt10getVersionEv"]
-        fn ffi_get_version() -> *const Version;
     }
 
     pub struct PrtVersion {
@@ -537,7 +360,7 @@ pub mod prt {
 
     pub fn get_version() -> Result<PrtVersion, PrtError> {
         unsafe {
-            let version_ptr = ffi_get_version();
+            let version_ptr = prt_ffi::ffi_get_version();
             if version_ptr == ptr::null() {
                 return Err(PrtError {
                     message: "Could not get PRT version info".to_string(),
@@ -568,6 +391,187 @@ pub mod prt {
         }
     }
 
+    mod prt_ffi {
+        use std::ffi;
+        use std::ptr::null;
+
+        #[repr(C)]
+        pub(crate) struct Object {
+            dummy: i8, // to avoid the "unsafe FFI object" warning
+        }
+
+        impl Object {
+            pub(crate) fn destroy(&self) {}
+        }
+
+        extern "C" {
+            #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+            #[link_name = "\u{1}_ZN3prt4initEPKPKwmNS_8LogLevelEPNS_6StatusE"]
+            pub(crate) fn ffi_init(prt_plugins: *const *const libc::wchar_t,
+                                   prt_plugins_count: libc::size_t,
+                                   log_level: crate::prt::LogLevel,
+                                   status: *mut crate::prt::Status) -> *const Object;
+        }
+
+        #[repr(C)]
+        pub(crate) struct AttributeMap {
+            dummy: i32,
+        }
+
+        #[repr(C)]
+        struct ResolveMap {
+            dummy: i32,
+        }
+
+        #[repr(C)]
+        pub(crate) struct InitialShapeWrapper {
+            // see cpp/bindings.h
+            vertex_coords: *const f64,
+            vertex_coords_count: libc::size_t,
+            indices: *const u32,
+            indices_count: libc::size_t,
+            face_counts: *const u32,
+            face_counts_count: libc::size_t,
+
+            rule_file: *const ffi::c_char,
+            start_rule: *const ffi::c_char,
+            random_seed: i32,
+            name: *const ffi::c_char,
+            attributes: *const AttributeMap,
+            resolve_map: *const ResolveMap,
+        }
+
+        pub(crate) struct InitialShapeAdaptor<'a> {
+            initial_shape: &'a Box<crate::prt::InitialShape>,
+
+            ffi_rule_file_owner: ffi::CString,
+            ffi_start_rule_owner: ffi::CString,
+            ffi_name_owner: ffi::CString,
+        }
+
+        impl InitialShapeAdaptor<'_> {
+            pub(crate) fn adapt(initial_shape: &Box<crate::prt::InitialShape>) -> InitialShapeAdaptor {
+                InitialShapeAdaptor {
+                    initial_shape,
+                    ffi_rule_file_owner: initial_shape.rule_file.ffi_to_cstring(),
+                    ffi_start_rule_owner: ffi::CString::new(initial_shape.start_rule.as_bytes()).unwrap(),
+                    ffi_name_owner: ffi::CString::new(initial_shape.name.as_bytes()).unwrap(),
+                }
+            }
+
+            pub(crate) fn get_ffi_wrapper(&self) -> InitialShapeWrapper {
+                return InitialShapeWrapper {
+                    vertex_coords: self.initial_shape.vertex_coords.as_ptr(),
+                    vertex_coords_count: self.initial_shape.vertex_coords.len(),
+                    indices: self.initial_shape.indices.as_ptr(),
+                    indices_count: self.initial_shape.indices.len(),
+                    face_counts: self.initial_shape.face_counts.as_ptr(),
+                    face_counts_count: self.initial_shape.face_counts.len(),
+                    rule_file: self.ffi_rule_file_owner.as_ptr(),
+                    start_rule: self.ffi_start_rule_owner.as_ptr(),
+                    random_seed: self.initial_shape.random_seed,
+                    name: self.ffi_name_owner.as_ptr(),
+                    attributes: null(), // TODO
+                    resolve_map: null(), // TODO
+                };
+            }
+        }
+
+        #[repr(C)]
+        pub(crate) struct Cache {
+            dummy: i32,
+        }
+
+        #[repr(C)]
+        pub(crate) struct OcclusionSet {
+            dummy: i32,
+        }
+
+        #[repr(C)]
+        pub(crate) struct AbstractCallbacksBinding<T> where T: crate::prt::Callbacks {
+            pub(crate) context: *mut T,
+        }
+
+        #[link(name = "bindings", kind = "static")]
+        extern "C" {
+            pub(crate) fn ffi_generate(initial_shapes: *const *const InitialShapeWrapper,
+                                       initial_shapes_count: libc::size_t,
+                                       occlusion_handles: *const u64, // see prt::OcclusionSet::Handle
+                                       encoders: *const *const libc::wchar_t,
+                                       encoders_count: libc::size_t,
+                                       encoder_options: *const AttributeMap,
+                                       callbacks: *mut ffi::c_void,
+                                       cache: *mut Cache,
+                                       occl_set: *const OcclusionSet,
+                                       generate_options: *const AttributeMap) -> crate::prt::Status;
+        }
+
+        #[repr(C)]
+        pub(crate) struct AbstractLogHandlerBinding<T> where T: crate::prt::LogHandler {
+            pub(crate) handle_log_event: unsafe extern fn(*mut T, msg: *const ffi::c_char),
+            pub(crate) context: *mut T,
+        }
+
+        #[link(name = "bindings", kind = "static")]
+        extern "C" {
+            pub(crate) fn ffi_add_log_handler(log_handler: *mut ffi::c_void);
+            pub(crate) fn ffi_remove_log_handler(log_handler: *mut ffi::c_void);
+        }
+
+        extern "C" {
+            #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+            #[link_name = "\u{1}_ZN3prt3logEPKwNS_8LogLevelE"]
+            pub(crate) fn prt_log(msg: *const libc::wchar_t, level: crate::prt::LogLevel);
+        }
+
+        #[repr(C)]
+        pub(crate) struct Version {
+            pub(crate) version_major: i32,
+            pub(crate) version_minor: i32,
+            pub(crate) version_build: i32,
+
+            pub(crate) name: *const ffi::c_char,
+            pub(crate) full_name: *const ffi::c_char,
+            pub(crate) version: *const ffi::c_char,
+            pub(crate) build_config: *const ffi::c_char,
+            pub(crate) build_os: *const ffi::c_char,
+            pub(crate) build_arch: *const ffi::c_char,
+            pub(crate) build_tc: *const ffi::c_char,
+            pub(crate) build_date: *const ffi::c_char,
+
+            pub(crate) name_w: *const libc::wchar_t,
+            full_name_w: *const libc::wchar_t,
+            version_w: *const libc::wchar_t,
+            build_config_w: *const libc::wchar_t,
+            build_os_w: *const libc::wchar_t,
+            build_arch_w: *const libc::wchar_t,
+            build_tc_w: *const libc::wchar_t,
+            pub(crate) build_date_w: *const libc::wchar_t,
+
+            pub(crate) cga_version_major: i32,
+            pub(crate) cga_version_minor: i32,
+            pub(crate) cga_version: *const ffi::c_char,
+            cga_version_w: *const i32,
+
+            pub(crate) cgac_version_major: i32,
+            pub(crate) cgac_version_minor: i32,
+            pub(crate) cgac_version: *const ffi::c_char,
+            cgac_version_w: *const i32,
+        }
+
+        extern "C" {
+            #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+            #[link_name = "\u{1}_ZN3prt10getVersionEv"]
+            pub(crate) fn ffi_get_version() -> *const Version;
+        }
+
+        extern "C" {
+            #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+            #[link_name = "\u{1}_ZN3prt20getStatusDescriptionENS_6StatusE"]
+            pub(crate) fn ffi_get_status_description(input: crate::prt::Status) -> *const ffi::c_char;
+        }
+    }
+
     #[cfg(test)]
     mod tests {
         use super::*;
@@ -593,7 +597,7 @@ pub mod prt {
         #[test]
         fn prt_get_version() {
             unsafe {
-                let ver = &*ffi_get_version();
+                let ver = &*prt_ffi::ffi_get_version();
                 assert_cstring("prt::Version::mName", ver.name, "ArcGIS Procedural Runtime");
                 assert_cstring("prt::Version::mVersion", ver.version, "2.7.8538");
                 assert_cstring("prt::Version::mBuildConfig", ver.build_config, "PRT_BC_REL");
@@ -616,7 +620,7 @@ pub mod prt {
         #[test]
         fn prt_get_status_description() {
             unsafe {
-                let status_description_cchar_ptr = ffi_get_status_description(Status::STATUS_OUT_OF_MEM);
+                let status_description_cchar_ptr = prt_ffi::ffi_get_status_description(Status::STATUS_OUT_OF_MEM);
                 let status_description = crate::helpers::from_char_ptr_to_string(status_description_cchar_ptr);
                 assert_eq!(status_description, "Out of memory.");
             }
