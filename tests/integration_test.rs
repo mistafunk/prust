@@ -1,8 +1,7 @@
-use std::ffi;
 use prust::prt;
-use prust::prt::{EncoderOptions, InitialShape, LogHandler};
 use ctor::ctor;
 use lazy_static::lazy_static;
+use prust::prt::KeyOrUri;
 
 // note: these tests only work single threaded ATM
 
@@ -35,7 +34,7 @@ fn test_custom_log_handler() {
         captured_message: String,
     }
 
-    impl LogHandler for CustomLogHandler {
+    impl prt::LogHandler for CustomLogHandler {
         fn handle_log_event(&mut self, msg: &str) {
             self.captured_message += msg;
         }
@@ -53,22 +52,22 @@ fn test_generate() {
     let mut log_handler = Box::new(prt::DefaultLogHandler::default());
     prt::add_log_handler(&mut log_handler);
 
-    let rule_package_dir = format!("rpk:file:{}/tests/extrude.rpk!/bin/extrude.cgb",
-                                   env!("CARGO_MANIFEST_DIR"));
+    let rule_file_uri = KeyOrUri::Uri(format!("rpk:file:{}/tests/extrude.rpk!/bin/extrude.cgb",
+                                env!("CARGO_MANIFEST_DIR")));
 
-    let mut initial_shapes: Vec<Box<prt::InitialShape>> = Vec::default();
-    initial_shapes.push(Box::new(InitialShape {
-        vertex_coords: vec![0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0, 0.0, 0.0],
-        indices: vec![0, 1, 2, 3],
-        face_counts: vec![4],
-        rule_file: ffi::CString::new(rule_package_dir).unwrap(),
-        start_rule: ffi::CString::new("Default$Init").unwrap(), // TODO: hide ffi usage
-        random_seed: 0,
-        name: ffi::CString::new("rust_shape").unwrap(), // TODO: hide ffi usage
-    }));
+    let initial_shape = Box::new(prt::InitialShapeBuilder::default()
+        .vertex_coords(vec![0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0, 0.0, 0.0])
+        .indices(vec![0, 1, 2, 3])
+        .face_counts(vec![4])
+        .rule_file(rule_file_uri)
+        .start_rule("Default$Init".to_string())
+        .random_seed(0)
+        .name("rust_shape".to_string())
+        .build().unwrap());
 
+    let initial_shapes: Vec<Box<prt::InitialShape>> = vec![initial_shape];
     let encoders = vec!["com.esri.prt.codecs.OBJEncoder".to_string()];
-    let encoder_options = vec![EncoderOptions::default()];
+    let encoder_options = vec![prt::EncoderOptions::default()];
     let mut callbacks = Box::new(prt::FileCallbacks::default());
 
     let generate_status = prt::generate(&initial_shapes, &encoders, &encoder_options,

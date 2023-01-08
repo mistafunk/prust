@@ -1,9 +1,10 @@
 pub mod prt {
-    use std::{collections, path};
+    use std::{collections, fmt, path};
     use std::ffi;
     use std::fmt::{Display, Formatter};
     use std::ptr;
     use std::ptr::{null, null_mut};
+    use derive_builder::Builder;
 
     #[derive(Debug)]
     pub struct PrtError {
@@ -111,8 +112,52 @@ pub mod prt {
         dummy: i32,
     }
 
+    #[derive(Clone, Debug)]
+    pub enum KeyOrUri {
+        Undefined,
+        Key(String),
+        Uri(String), // TODO: use a type which supports nested Uris
+    }
+
+    impl Default for KeyOrUri {
+        fn default() -> Self { KeyOrUri::Undefined }
+    }
+
+    impl KeyOrUri {
+        fn ffi_to_cstring(&self) -> ffi::CString {
+            match self {
+                KeyOrUri::Undefined => panic!("Undefined ResolveMap key or Uri!"),
+                KeyOrUri::Key(k) => ffi::CString::new(k.as_str()).unwrap(),
+                KeyOrUri::Uri(u) => ffi::CString::new(u.as_str()).unwrap(),
+            }
+        }
+    }
+
+    impl fmt::Display for KeyOrUri {
+        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            match self {
+                KeyOrUri::Undefined => write!(f, "Undefined ResolveMap key or Uri!"),
+                KeyOrUri::Key(k) => write!(f, "{}", k),
+                KeyOrUri::Uri(u) => write!(f, "{}", u.to_string()),
+            }
+        }
+    }
+
+    #[derive(Default, Builder, Debug)]
+    pub struct InitialShape {
+        vertex_coords: Vec<f64>,
+        indices: Vec<u32>,
+        face_counts: Vec<u32>,
+
+        rule_file: KeyOrUri,
+        start_rule: String,
+        random_seed: i32,
+        name: String,
+    }
+
     #[repr(C)]
     struct InitialShapeWrapper {
+        // see cpp/bindings.h
         vertex_coords: *const f64,
         vertex_coords_count: libc::size_t,
         indices: *const u32,
@@ -128,34 +173,36 @@ pub mod prt {
         resolve_map: *const ResolveMap,
     }
 
-    // TODO: add builder methods
-    pub struct InitialShape {
-        pub vertex_coords: Vec<f64>,
-        pub indices: Vec<u32>,
-        pub face_counts: Vec<u32>,
+    struct InitialShapeAdaptor<'a> {
+        initial_shape: &'a Box<InitialShape>,
 
-        pub rule_file: ffi::CString,
-        pub start_rule: ffi::CString,
-        pub random_seed: i32,
-        pub name: ffi::CString,
+        ffi_rule_file_owner: ffi::CString,
+        ffi_start_rule_owner: ffi::CString,
+        ffi_name_owner: ffi::CString,
     }
 
-    impl InitialShape {
-        //     fn vertex_coords(&mut self, coords: Vec<f64>) {
-        //         self.vertex_coords = coords;
-        //     }
-        fn get_wrapper(&self) -> InitialShapeWrapper {
+    impl InitialShapeAdaptor<'_> {
+        fn adapt(initial_shape: &Box<InitialShape>) -> InitialShapeAdaptor {
+            InitialShapeAdaptor {
+                initial_shape,
+                ffi_rule_file_owner: initial_shape.rule_file.ffi_to_cstring(),
+                ffi_start_rule_owner: ffi::CString::new(initial_shape.start_rule.as_bytes()).unwrap(),
+                ffi_name_owner: ffi::CString::new(initial_shape.name.as_bytes()).unwrap(),
+            }
+        }
+
+        fn get_ffi_wrapper(&self) -> InitialShapeWrapper {
             return InitialShapeWrapper {
-                vertex_coords: self.vertex_coords.as_ptr(),
-                vertex_coords_count: self.vertex_coords.len(),
-                indices: self.indices.as_ptr(),
-                indices_count: self.indices.len(),
-                face_counts: self.face_counts.as_ptr(),
-                face_counts_count: self.face_counts.len(),
-                rule_file: self.rule_file.as_ptr(),
-                start_rule: self.start_rule.as_ptr(),
-                random_seed: self.random_seed,
-                name: self.name.as_ptr(),
+                vertex_coords: self.initial_shape.vertex_coords.as_ptr(),
+                vertex_coords_count: self.initial_shape.vertex_coords.len(),
+                indices: self.initial_shape.indices.as_ptr(),
+                indices_count: self.initial_shape.indices.len(),
+                face_counts: self.initial_shape.face_counts.as_ptr(),
+                face_counts_count: self.initial_shape.face_counts.len(),
+                rule_file: self.ffi_rule_file_owner.as_ptr(),
+                start_rule: self.ffi_start_rule_owner.as_ptr(),
+                random_seed: self.initial_shape.random_seed,
+                name: self.ffi_name_owner.as_ptr(),
                 attributes: null(), // TODO
                 resolve_map: null(), // TODO
             };
@@ -208,33 +255,41 @@ pub mod prt {
             return Status::STATUS_ARGUMENTS_MISMATCH;
         }
 
+        // wrap the initial shapes into an adaptor to have a mutable place
+        // where we can hold any owners of C pointers
+        let mut initial_shape_adaptors: Vec<InitialShapeAdaptor> = initial_shapes.iter()
+            .map(|x| InitialShapeAdaptor::adapt(x))
+            .collect();
+
+        let initial_shape_wrappers: Vec<InitialShapeWrapper> = initial_shape_adaptors.iter_mut()
+            .map(|x: &mut InitialShapeAdaptor| x.get_ffi_wrapper())
+            .collect();
+
+        let initial_shape_wrapper_ptr_vec: Vec<*const InitialShapeWrapper> = initial_shape_wrappers.iter()
+            .map(|x| &*x as *const InitialShapeWrapper)
+            .collect();
+
+        let occlusion_handles: *const u64 = null();
+
+        // TODO: probably better to stay UTF-8 on the rust side and convert in the native wrapper
+        let encoders_wchar_vec: Vec<Vec<libc::wchar_t>> = encoders.iter()
+            .map(|x| crate::helpers::from_string_to_wchar_vec(x.as_str()))
+            .collect();
+        let encoders_ptr_vec: Vec<*const libc::wchar_t> = encoders_wchar_vec.iter().map(|x| x.as_ptr()).collect();
+
+        let encoder_options_ptr_vec: *const AttributeMap = null();
+
+        let callbacks_context: *mut C = callbacks.as_mut();
+        let callbacks_binding: Box<AbstractCallbacksBinding<C>>
+            = Box::new(AbstractCallbacksBinding { context: callbacks_context });
+        let callbacks_binding_ptr
+            = Box::into_raw(callbacks_binding) as *mut ffi::c_void;
+
+        let cache: *mut Cache = null_mut();
+        let occl_set: *const OcclusionSet = null();
+        let generate_options: *const AttributeMap = null();
+
         unsafe {
-            let initial_shape_wrappers: Vec<InitialShapeWrapper> = initial_shapes.iter()
-                .map(|x| x.get_wrapper())
-                .collect();
-            let initial_shape_wrapper_ptr_vec: Vec<*const InitialShapeWrapper> = initial_shape_wrappers.iter()
-                .map(|x| &*x as *const InitialShapeWrapper).collect();
-
-            let occlusion_handles: *const u64 = null();
-
-            // TODO: probably better to stay UTF-8 on the rust side and convert in the native wrapper
-            let encoders_wchar_vec: Vec<Vec<libc::wchar_t>> = encoders.iter()
-                .map(|x| crate::helpers::from_string_to_wchar_vec(x.as_str()))
-                .collect();
-            let encoders_ptr_vec: Vec<*const libc::wchar_t> = encoders_wchar_vec.iter().map(|x| x.as_ptr()).collect();
-
-            let encoder_options_ptr_vec: *const AttributeMap = null();
-
-            let callbacks_context: *mut C = callbacks.as_mut();
-            let callbacks_binding: Box<AbstractCallbacksBinding<C>>
-                = Box::new(AbstractCallbacksBinding { context: callbacks_context });
-            let callbacks_binding_ptr
-                = Box::into_raw(callbacks_binding) as *mut ffi::c_void;
-
-            let cache: *mut Cache = null_mut();
-            let occl_set: *const OcclusionSet = null();
-            let generate_options: *const AttributeMap = null();
-
             let status = ffi_generate(initial_shape_wrapper_ptr_vec.as_ptr(),
                                       initial_shape_wrapper_ptr_vec.len(),
                                       occlusion_handles,
