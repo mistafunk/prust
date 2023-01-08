@@ -1,6 +1,6 @@
 [package]
 name = "prust"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2021"
 build = "build.rs"
 links = "com.esri.prt.core"
