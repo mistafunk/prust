@@ -44,6 +44,11 @@ fn download(my_url: &url::Url) -> PathBuf {
 }
 
 fn main() {
+    match std::env::var("DOCS_RS") {
+        Ok(val) => { if val == "1" { return; } } // early exit for docs.rs builds
+        Err(_) => {}
+    }
+
     let cesdk_url_string = format!("{b}/releases/download/{v}/esri_ce_sdk-{v}-{c}.zip",
                                    b = CESDK_REPO_URL, v = CESDK_VERSION, c = CESDK_CLASSIFIER);
     let cesdk_url = url::Url::parse(&cesdk_url_string);
