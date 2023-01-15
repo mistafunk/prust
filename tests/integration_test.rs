@@ -1,7 +1,8 @@
+use std::collections::HashMap;
 use prust::prt;
 use ctor::ctor;
 use lazy_static::lazy_static;
-use prust::prt::KeyOrUri;
+use prust::prt::{KeyOrUri, PrimitiveType};
 
 // note: these tests only work single threaded ATM
 
@@ -55,6 +56,9 @@ fn test_generate() {
     let rule_file_uri = KeyOrUri::Uri(format!("rpk:file:{}/tests/extrude.rpk!/bin/extrude.cgb",
                                 env!("CARGO_MANIFEST_DIR")));
 
+    let mut attrs = prt::AttributeMap::new();
+    attrs.insert("height".to_string(), PrimitiveType::Float(10.0));
+
     let initial_shape = Box::new(prt::InitialShapeBuilder::default()
         .vertex_coords(vec![0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0, 0.0, 0.0])
         .indices(vec![0, 1, 2, 3])
@@ -63,11 +67,12 @@ fn test_generate() {
         .start_rule("Default$Init".to_string())
         .random_seed(0)
         .name("rust_shape".to_string())
+        .attributes(attrs)
         .build().unwrap());
 
     let initial_shapes: Vec<Box<prt::InitialShape>> = vec![initial_shape];
     let encoders = vec!["com.esri.prt.codecs.OBJEncoder".to_string()];
-    let encoder_options = vec![prt::EncoderOptions::default()];
+    let encoder_options = vec![prt::AttributeMap::default()];
     let mut callbacks = Box::new(prt::FileCallbacks::default());
 
     let generate_status = prt::generate(&initial_shapes, &encoders, &encoder_options,

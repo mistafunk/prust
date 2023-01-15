@@ -12,7 +12,6 @@
 namespace {
 
 using AttributeMapBuilderUPtr = std::unique_ptr<prt::AttributeMapBuilder, PRTObjectDestroyer>;
-using AttributeMapUPtr = std::unique_ptr<const prt::AttributeMap, PRTObjectDestroyer>;
 using EncoderInfoUPtr = std::unique_ptr<const prt::EncoderInfo, PRTObjectDestroyer>;
 using InitialShapeBuilderUPtr = std::unique_ptr<prt::InitialShapeBuilder, PRTObjectDestroyer>;
 using InitialShapeUPtr = std::unique_ptr<const prt::InitialShape, PRTObjectDestroyer>;
@@ -53,6 +52,11 @@ const prt::AttributeMap* createValidatedOptions(const wchar_t* encID,
 }
 
 } // namespace
+
+AttributeMapUPtr AttributeMapWrapper::createAttributeMap() const {
+	AttributeMapBuilderUPtr builder(prt::AttributeMapBuilder::create());
+	return AttributeMapUPtr(builder->createAttributeMap());
+}
 
 void InitialShapeWrapper::setAttributes(prt::InitialShapeBuilder& isb, const prt::AttributeMap* am,
                                         const prt::ResolveMap* rm) const {
@@ -147,9 +151,13 @@ prt::Status ffi_generate(const InitialShapeWrapper* const* ffiInitialShapes, siz
 		const InitialShapeWrapper& isw = *ffiInitialShapes[i];
 		isb->setGeometry(isw.vertexCoords, isw.vertexCoordsCount, isw.indices, isw.indicesCount, isw.faceCounts,
 		                 isw.faceCountsCount);
-		initialShapeAttributes.emplace_back(amb->createAttributeMapAndReset()); // TODO
-		resolveMaps.emplace_back(rmb->createResolveMapAndReset());              // TODO
 
+		if (isw.attributes != nullptr)
+			initialShapeAttributes.emplace_back(isw.attributes->createAttributeMap());
+		else
+			initialShapeAttributes.emplace_back(amb->createAttributeMap()); // TODO: optimize
+
+		resolveMaps.emplace_back(rmb->createResolveMapAndReset()); // TODO
 		isw.setAttributes(*isb, initialShapeAttributes.back().get(), resolveMaps.back().get());
 
 		initialShapes.emplace_back(isb->createInitialShapeAndReset());

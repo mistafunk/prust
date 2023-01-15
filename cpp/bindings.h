@@ -1,5 +1,6 @@
 #pragma once
 
+#include "prt/AttributeMap.h"
 #include "prt/Cache.h"
 #include "prt/Callbacks.h"
 #include "prt/ContentType.h"
@@ -20,10 +21,14 @@ struct PRTObjectDestroyer {
 	}
 };
 
+using AttributeMapUPtr = std::unique_ptr<const prt::AttributeMap, PRTObjectDestroyer>;
+
 extern "C" {
 
 struct AttributeMapWrapper {
 	int32_t dummy;
+
+	AttributeMapUPtr createAttributeMap() const;
 };
 
 struct ResolveMapWrapper {

@@ -67,8 +67,7 @@ pub mod prt {
         }
     }
 
-    #[derive(PartialEq)]
-    #[derive(Debug)]
+    #[derive(PartialEq, Clone, Debug)]
     pub enum PrimitiveType {
         Undefined(),
         String(String),
@@ -80,8 +79,6 @@ pub mod prt {
         BoolArray(Vec<bool>),
         IntArray(Vec<i32>),
     }
-
-    pub type EncoderOptions = collections::HashMap<String, PrimitiveType>;
 
     #[derive(Clone, Debug)]
     pub enum KeyOrUri {
@@ -114,6 +111,8 @@ pub mod prt {
         }
     }
 
+    pub type AttributeMap = collections::HashMap<String, PrimitiveType>;
+
     #[derive(Default, Builder, Debug)]
     pub struct InitialShape {
         vertex_coords: Vec<f64>,
@@ -124,6 +123,8 @@ pub mod prt {
         start_rule: String,
         random_seed: i32,
         name: String,
+
+        attributes: AttributeMap,
     }
 
     pub trait Callbacks {}
@@ -135,7 +136,7 @@ pub mod prt {
 
     pub fn generate<C>(initial_shapes: &Vec<Box<InitialShape>>,
                        encoders: &Vec<String>,
-                       encoder_options: &Vec<EncoderOptions>,
+                       encoder_options: &Vec<AttributeMap>,
                        callbacks: &mut Box<C>) -> Status // todo: consistent error handling
         where C: Callbacks
     {
@@ -165,7 +166,7 @@ pub mod prt {
             .collect();
         let encoders_ptr_vec: Vec<*const libc::wchar_t> = encoders_wchar_vec.iter().map(|x| x.as_ptr()).collect();
 
-        let encoder_options_ptr_vec: *const prt_ffi::AttributeMap = ptr::null();
+        let encoder_options_ptr_vec: *const prt_ffi::AttributeMapWrapper = ptr::null();
 
         let callbacks_context: *mut C = callbacks.as_mut();
         let callbacks_binding: Box<prt_ffi::AbstractCallbacksBinding<C>>
@@ -175,7 +176,7 @@ pub mod prt {
 
         let cache: *mut prt_ffi::Cache = ptr::null_mut();
         let occl_set: *const prt_ffi::OcclusionSet = ptr::null();
-        let generate_options: *const prt_ffi::AttributeMap = ptr::null();
+        let generate_options: *const prt_ffi::AttributeMapWrapper = ptr::null();
 
         unsafe {
             let status = prt_ffi::ffi_generate(initial_shape_wrapper_ptr_vec.as_ptr(),
@@ -394,6 +395,7 @@ pub mod prt {
     mod prt_ffi {
         use std::ffi;
         use std::ptr::null;
+        use crate::prt::{AttributeMap, InitialShape};
 
         #[repr(C)]
         pub(crate) struct Object {
@@ -414,12 +416,20 @@ pub mod prt {
         }
 
         #[repr(C)]
-        pub(crate) struct AttributeMap {
+        pub(crate) struct AttributeMapWrapper {
             dummy: i32,
         }
 
+        impl AttributeMapWrapper {
+            fn get_ffi_wrapper(attributeMap: AttributeMap) -> AttributeMapWrapper {
+                return AttributeMapWrapper {
+                    dummy: 0,
+                }
+            }
+        }
+
         #[repr(C)]
-        struct ResolveMap {
+        struct ResolveMapWrapper {
             dummy: i32,
         }
 
@@ -437,8 +447,9 @@ pub mod prt {
             start_rule: *const ffi::c_char,
             random_seed: i32,
             name: *const ffi::c_char,
-            attributes: *const AttributeMap,
-            resolve_map: *const ResolveMap,
+
+            attributes: *const AttributeMapWrapper,
+            resolve_map: *const ResolveMapWrapper,
         }
 
         pub(crate) struct InitialShapeAdaptor<'a> {
@@ -499,11 +510,11 @@ pub mod prt {
                                        occlusion_handles: *const u64, // see prt::OcclusionSet::Handle
                                        encoders: *const *const libc::wchar_t,
                                        encoders_count: libc::size_t,
-                                       encoder_options: *const AttributeMap,
+                                       encoder_options: *const AttributeMapWrapper,
                                        callbacks: *mut ffi::c_void,
                                        cache: *mut Cache,
                                        occl_set: *const OcclusionSet,
-                                       generate_options: *const AttributeMap) -> crate::prt::Status;
+                                       generate_options: *const AttributeMapWrapper) -> crate::prt::Status;
         }
 
         #[repr(C)]
