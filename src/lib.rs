@@ -219,13 +219,14 @@ pub mod prt {
     }
 
     pub fn add_log_handler<T>(log_handler: &mut Box<T>) where T: LogHandler {
-        unsafe extern "C" fn handle_log_event<T>(context: *mut T, cmsg: *const ffi::c_char)
+        extern "C" fn handle_log_event<T>(context: *mut T, cmsg: *const ffi::c_char)
             where T: LogHandler
         {
-            let handler_ref: &mut T = &mut *context;
-
-            let msg = ffi::CStr::from_ptr(cmsg).to_str().unwrap();
-            handler_ref.handle_log_event(msg);
+            unsafe {
+                let handler_ref: &mut T = &mut *context;
+                let msg = ffi::CStr::from_ptr(cmsg).to_str().unwrap();
+                handler_ref.handle_log_event(msg);
+            }
         }
 
         let context: *mut T = log_handler.as_mut();
@@ -404,7 +405,7 @@ pub mod prt {
             pub(crate) fn destroy(&self) {}
         }
 
-        extern "C" {
+        unsafe extern "C" {
             #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
             #[link_name = "\u{1}_ZN3prt4initEPKPKwmNS_8LogLevelEPNS_6StatusE"]
             pub(crate) fn ffi_init(prt_plugins: *const *const libc::wchar_t,
@@ -493,7 +494,7 @@ pub mod prt {
         }
 
         #[link(name = "bindings", kind = "static")]
-        extern "C" {
+        unsafe extern "C" {
             pub(crate) fn ffi_generate(initial_shapes: *const *const InitialShapeWrapper,
                                        initial_shapes_count: libc::size_t,
                                        occlusion_handles: *const u64, // see prt::OcclusionSet::Handle
@@ -513,12 +514,12 @@ pub mod prt {
         }
 
         #[link(name = "bindings", kind = "static")]
-        extern "C" {
+        unsafe extern "C" {
             pub(crate) fn ffi_add_log_handler(log_handler: *mut ffi::c_void);
             pub(crate) fn ffi_remove_log_handler(log_handler: *mut ffi::c_void);
         }
 
-        extern "C" {
+        unsafe extern "C" {
             #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
             #[link_name = "\u{1}_ZN3prt3logEPKwNS_8LogLevelE"]
             pub(crate) fn prt_log(msg: *const libc::wchar_t, level: crate::prt::LogLevel);
@@ -559,13 +560,13 @@ pub mod prt {
             cgac_version_w: *const i32,
         }
 
-        extern "C" {
+        unsafe extern "C" {
             #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
             #[link_name = "\u{1}_ZN3prt10getVersionEv"]
             pub(crate) fn ffi_get_version() -> *const Version;
         }
 
-        extern "C" {
+        unsafe extern "C" {
             #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
             #[link_name = "\u{1}_ZN3prt20getStatusDescriptionENS_6StatusE"]
             pub(crate) fn ffi_get_status_description(input: crate::prt::Status) -> *const ffi::c_char;
