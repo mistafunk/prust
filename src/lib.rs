@@ -599,21 +599,21 @@ pub mod prt {
             unsafe {
                 let ver = &*prt_ffi::ffi_get_version();
                 assert_cstring("prt::Version::mName", ver.name, "ArcGIS Procedural Runtime");
-                assert_cstring("prt::Version::mVersion", ver.version, "2.7.8538");
+                assert_cstring("prt::Version::mVersion", ver.version, "3.2.10650");
                 assert_cstring("prt::Version::mBuildConfig", ver.build_config, "PRT_BC_REL");
                 assert_cstring("prt::Version::mBuildOS", ver.build_os, "linux");
                 assert_cstring("prt::Version::mBuildArch", ver.build_arch, "x86_64");
-                assert_cstring("prt::Version::mBuildTC", ver.build_tc, "PRT_TC_GCC93");
-                assert_cstring("prt::Version::mBuildDate", ver.build_date, "2022-10-04 15:48");
+                assert_cstring("prt::Version::mBuildTC", ver.build_tc, "PRT_TC_GCC112");
+                assert_cstring("prt::Version::mBuildDate", ver.build_date, "2024-11-06 09:44");
 
                 assert_wcstring("prt::Version::mwName", ver.name_w, "ArcGIS Procedural Runtime");
-                assert_wcstring("prt::Version::mwBuildDate", ver.build_date_w, "2022-10-04 15:48");
+                assert_wcstring("prt::Version::mwBuildDate", ver.build_date_w, "2024-11-06 09:44");
 
-                assert_int("prt::Version::mCGAVersionMajor", ver.cga_version_major, 2022);
+                assert_int("prt::Version::mCGAVersionMajor", ver.cga_version_major, 2024);
                 assert_int("prt::Version::mCGAVersionMinor", ver.cga_version_minor, 1);
 
-                assert_int("prt::Version::mCGACVersionMajor", ver.cgac_version_major, 1);
-                assert_int("prt::Version::mCGACVersionMinor", ver.cgac_version_minor, 19);
+                assert_int("prt::Version::mCGACVersionMajor", ver.cgac_version_major, 2);
+                assert_int("prt::Version::mCGACVersionMinor", ver.cgac_version_minor, 6);
             }
         }
 
@@ -672,7 +672,7 @@ mod helpers {
     }
 
     pub fn from_string_to_wchar_vec(msg: &str) -> Vec<libc::wchar_t> {
-        return if cfg!(linux) {
+        return if cfg!(target_os = "linux") {
             let wide_msg = widestring::U32CString::from_str(msg)
                 .expect("cannot convert to UTF-32/wchar_t");
             wide_msg.into_vec_with_nul().iter().map(|&e| e as libc::wchar_t).collect()
