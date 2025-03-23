@@ -80,7 +80,7 @@ fn test_version() {
     let prt_version_res = prt::get_version();
     assert!(prt_version_res.is_ok());
     let prt_version = prt_version_res.ok().unwrap();
-    assert_eq!(prt_version.version_major, 2);
-    assert_eq!(prt_version.version_minor, 7);
-    assert_eq!(prt_version.version_string, "2.7.8538");
+    assert_eq!(prt_version.version_major, 3);
+    assert_eq!(prt_version.version_minor, 2);
+    assert_eq!(prt_version.version_string, "3.2.10650");
 }

@@ -68,62 +68,67 @@ RustCallbacksBinding::RustCallbacksBinding(AbstractCallbacksBinding* binding) : 
 	mDelegate.reset(prt::FileOutputCallbacks::create(prustTempPath.wstring().c_str()));
 }
 
-prt::Status RustCallbacksBinding::generateError(size_t isIndex, prt::Status status, const wchar_t* message) {
+prt::Status RustCallbacksBinding::generateError(size_t /*isIndex*/, prt::Status /*status*/,
+                                                const wchar_t* /*message*/) {
 	return prt::STATUS_OK;
 }
 
-prt::Status RustCallbacksBinding::assetError(size_t isIndex, prt::CGAErrorLevel level, const wchar_t* key,
-                                             const wchar_t* uri, const wchar_t* message) {
+prt::Status RustCallbacksBinding::assetError(size_t /*isIndex*/, prt::CGAErrorLevel /*level*/, const wchar_t* /*key*/,
+                                             const wchar_t* /*uri*/, const wchar_t* /*message*/) {
 	return prt::STATUS_OK;
 }
 
-prt::Status RustCallbacksBinding::cgaError(size_t isIndex, int32_t shapeID, prt::CGAErrorLevel level, int32_t methodId,
-                                           int32_t pc, const wchar_t* message) {
+prt::Status RustCallbacksBinding::cgaError(size_t /*isIndex*/, int32_t /*shapeID*/, prt::CGAErrorLevel /*level*/,
+                                           int32_t /*methodId*/, int32_t /*pc*/, const wchar_t* /*message*/) {
 	return prt::STATUS_OK;
 }
 
-prt::Status RustCallbacksBinding::cgaPrint(size_t isIndex, int32_t shapeID, const wchar_t* txt) {
+prt::Status RustCallbacksBinding::cgaPrint(size_t /*isIndex*/, int32_t /*shapeID*/, const wchar_t* /*txt*/) {
 	return prt::STATUS_OK;
 }
 
-prt::Status RustCallbacksBinding::cgaReportBool(size_t isIndex, int32_t shapeID, const wchar_t* key, bool value) {
+prt::Status RustCallbacksBinding::cgaReportBool(size_t /*isIndex*/, int32_t /*shapeID*/, const wchar_t* /*key*/,
+                                                bool /*value*/) {
 	return prt::STATUS_OK;
 }
 
-prt::Status RustCallbacksBinding::cgaReportFloat(size_t isIndex, int32_t shapeID, const wchar_t* key, double value) {
+prt::Status RustCallbacksBinding::cgaReportFloat(size_t /*isIndex*/, int32_t /*shapeID*/, const wchar_t* /*key*/,
+                                                 double /*value*/) {
 	return prt::STATUS_OK;
 }
 
-prt::Status RustCallbacksBinding::cgaReportString(size_t isIndex, int32_t shapeID, const wchar_t* key,
-                                                  const wchar_t* value) {
+prt::Status RustCallbacksBinding::cgaReportString(size_t /*isIndex*/, int32_t /*shapeID*/, const wchar_t* /*key*/,
+                                                  const wchar_t* /*value*/) {
 	return prt::STATUS_OK;
 }
 
-prt::Status RustCallbacksBinding::attrBool(size_t isIndex, int32_t shapeID, const wchar_t* key, bool value) {
+prt::Status RustCallbacksBinding::attrBool(size_t /*isIndex*/, int32_t /*shapeID*/, const wchar_t* /*key*/,
+                                           bool /*value*/) {
 	return prt::STATUS_OK;
 }
 
-prt::Status RustCallbacksBinding::attrFloat(size_t isIndex, int32_t shapeID, const wchar_t* key, double value) {
+prt::Status RustCallbacksBinding::attrFloat(size_t /*isIndex*/, int32_t /*shapeID*/, const wchar_t* /*key*/,
+                                            double /*value*/) {
 	return prt::STATUS_OK;
 }
 
-prt::Status RustCallbacksBinding::attrString(size_t isIndex, int32_t shapeID, const wchar_t* key,
-                                             const wchar_t* value) {
+prt::Status RustCallbacksBinding::attrString(size_t /*isIndex*/, int32_t /*shapeID*/, const wchar_t* /*key*/,
+                                             const wchar_t* /*value*/) {
 	return prt::STATUS_OK;
 }
 
-prt::Status RustCallbacksBinding::attrBoolArray(size_t isIndex, int32_t /*shapeID*/, const wchar_t* key,
-                                                const bool* values, size_t size, size_t /*nRows*/) {
+prt::Status RustCallbacksBinding::attrBoolArray(size_t /*isIndex*/, int32_t /*shapeID*/, const wchar_t* /*key*/,
+                                                const bool* /*values*/, size_t /*size*/, size_t /*nRows*/) {
 	return prt::STATUS_OK;
 }
 
-prt::Status RustCallbacksBinding::attrFloatArray(size_t isIndex, int32_t /*shapeID*/, const wchar_t* key,
-                                                 const double* values, size_t size, size_t /*nRows*/) {
+prt::Status RustCallbacksBinding::attrFloatArray(size_t /*isIndex*/, int32_t /*shapeID*/, const wchar_t* /*key*/,
+                                                 const double* /*values*/, size_t /*size*/, size_t /*nRows*/) {
 	return prt::STATUS_OK;
 }
 
-prt::Status RustCallbacksBinding::attrStringArray(size_t isIndex, int32_t /*shapeID*/, const wchar_t* key,
-                                                  const wchar_t* const* values, size_t size, size_t /*nRows*/) {
+prt::Status RustCallbacksBinding::attrStringArray(size_t /*isIndex*/, int32_t /*shapeID*/, const wchar_t* /*key*/,
+                                                  const wchar_t* const* /*values*/, size_t /*size*/, size_t /*nRows*/) {
 	return prt::STATUS_OK;
 }
 

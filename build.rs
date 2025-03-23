@@ -2,10 +2,14 @@ use std::env;
 use std::io::Write;
 use std::path::PathBuf;
 use std::process::Command;
+use cmake;
+use reqwest;
+use url;
+use zip_extract;
 
-const CESDK_REPO_URL: &str = "https://github.com/Esri/cityengine-sdk";
-const CESDK_VERSION: &str = "2.7.8538";
-const CESDK_CLASSIFIER: &str = "rhel7-gcc93-x86_64-rel-opt"; // TODO: add support for windows
+const CESDK_REPO_URL: &str = "https://github.com/esri/cityengine-sdk";
+const CESDK_VERSION: &str = "3.2.10650";
+const CESDK_CLASSIFIER: &str = "rhel8-gcc112-x86_64-rel-opt"; // TODO: add support for windows
 
 fn get_out_path() -> PathBuf {
     return PathBuf::from(env::var("OUT_DIR").expect("cannot get OUT_DIR env var"));
@@ -54,6 +58,7 @@ fn main() {
     let cesdk_url = url::Url::parse(&cesdk_url_string);
     let cesdk_root_path = download(&cesdk_url.unwrap());
     let cesdk_bin_path = cesdk_root_path.join("bin");
+    let cesdk_cmake_path = cesdk_root_path.join("cmake");
 
     // patching rpath in cesdk on linux so core finds glutess
     let output = Command::new("patchelf")
@@ -65,15 +70,16 @@ fn main() {
     std::io::stdout().write_all(&output.stdout).unwrap();
     std::io::stderr().write_all(&output.stderr).unwrap();
 
+    let dst = cmake::Config::new("cpp")
+        .generator("Ninja")
+        .define("prt_DIR", cesdk_cmake_path)
+        .build();
+    let bindings_lib_path = dst.join("lib");
+
     println!("cargo:rustc-link-search=native={}", cesdk_bin_path.to_str().unwrap());
     println!("cargo:rustc-link-lib=dylib=com.esri.prt.core");
     println!("cargo:rustc-link-arg=-Wl,-rpath,{}", cesdk_bin_path.to_str().unwrap());
 
-    let cesdk_cmake_path = cesdk_root_path.join("cmake");
-    let dst = cmake::Config::new("cpp")
-        .define("prt_DIR", cesdk_cmake_path)
-        .build();
-    let bindings_lib_path = dst.join("lib");
     println!("cargo:rustc-link-search=native={}", bindings_lib_path.display());
     println!("cargo:rustc-link-lib=static=bindings");
     println!("cargo:rustc-link-lib=stdc++");

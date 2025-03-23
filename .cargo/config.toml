@@ -1,0 +1,2 @@
+[env]
+RUST_TEST_THREADS = "1" # required by the way the test assertions are written ATM
