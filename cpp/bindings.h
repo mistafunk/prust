@@ -26,7 +26,19 @@ struct AttributeMapWrapper {
 	int32_t dummy;
 };
 
+struct AttributeMapBuilderWrapper {
+	int32_t dummy;
+};
+
 struct ResolveMapWrapper {
+	int32_t dummy;
+};
+
+struct ResolveMapBuilderWrapper {
+	int32_t dummy;
+};
+
+struct EncoderInfoWrapper {
 	int32_t dummy;
 };
 
@@ -51,6 +63,33 @@ struct InitialShapeWrapper {
 struct AbstractCallbacksBinding {
 	void* context; // the actual Rust implementation
 };
+
+// AttributeMapBuilder functions
+AttributeMapBuilderWrapper* ffi_create_attribute_map_builder();
+void ffi_destroy_attribute_map_builder(AttributeMapBuilderWrapper* builder);
+prt::Status ffi_attribute_map_builder_set_string(AttributeMapBuilderWrapper* builder, const char* key, const char* value);
+prt::Status ffi_attribute_map_builder_set_float(AttributeMapBuilderWrapper* builder, const char* key, double value);
+prt::Status ffi_attribute_map_builder_set_int(AttributeMapBuilderWrapper* builder, const char* key, int32_t value);
+prt::Status ffi_attribute_map_builder_set_bool(AttributeMapBuilderWrapper* builder, const char* key, bool value);
+const AttributeMapWrapper* ffi_attribute_map_builder_create_map(AttributeMapBuilderWrapper* builder);
+
+// ResolveMapBuilder functions
+ResolveMapBuilderWrapper* ffi_create_resolve_map_builder();
+void ffi_destroy_resolve_map_builder(ResolveMapBuilderWrapper* builder);
+prt::Status ffi_resolve_map_builder_add_entry(ResolveMapBuilderWrapper* builder, const char* key, const char* value);
+const ResolveMapWrapper* ffi_resolve_map_builder_create_map(ResolveMapBuilderWrapper* builder);
+
+// EncoderInfo/DecoderInfo functions
+const char* const* ffi_list_encoder_ids(size_t* count);
+const char* const* ffi_list_decoder_ids(size_t* count);
+const EncoderInfoWrapper* ffi_create_encoder_info(const char* encoder_id);
+void ffi_destroy_encoder_info(const EncoderInfoWrapper* encoder_info);
+const char* ffi_encoder_info_get_id(const EncoderInfoWrapper* encoder_info);
+const char* ffi_encoder_info_get_name(const EncoderInfoWrapper* encoder_info);
+const char* ffi_encoder_info_get_description(const EncoderInfoWrapper* encoder_info);
+
+// StringUtils functions
+prt::Status ffi_string_utils_percent_encode(const char* input, char* output, size_t* size);
 
 prt::Status ffi_generate(const InitialShapeWrapper* const* initialShapes, size_t initialShapeCount,
                          const prt::OcclusionSet::Handle* occlusionHandles, const wchar_t* const* encoders,

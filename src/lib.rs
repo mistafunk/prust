@@ -83,6 +83,310 @@ pub mod prt {
 
     pub type EncoderOptions = collections::HashMap<String, PrimitiveType>;
 
+    pub struct AttributeMapBuilder {
+        handle: *mut prt_ffi::AttributeMapBuilder,
+    }
+
+    impl AttributeMapBuilder {
+        pub fn new() -> Result<AttributeMapBuilder, PrtError> {
+            unsafe {
+                let handle = prt_ffi::ffi_create_attribute_map_builder();
+                if handle.is_null() {
+                    Err(PrtError {
+                        message: "Failed to create AttributeMapBuilder".to_string(),
+                        status: Some(Status::STATUS_OUT_OF_MEM),
+                    })
+                } else {
+                    Ok(AttributeMapBuilder { handle })
+                }
+            }
+        }
+
+        pub fn set_string(&mut self, key: &str, value: &str) -> Result<(), PrtError> {
+            let key_cstr = ffi::CString::new(key).unwrap();
+            let value_cstr = ffi::CString::new(value).unwrap();
+            unsafe {
+                let status = prt_ffi::ffi_attribute_map_builder_set_string(
+                    self.handle, key_cstr.as_ptr(), value_cstr.as_ptr()
+                );
+                if status == Status::STATUS_OK {
+                    Ok(())
+                } else {
+                    Err(PrtError {
+                        message: format!("Failed to set string attribute: {}", get_status_description(status)),
+                        status: Some(status),
+                    })
+                }
+            }
+        }
+
+        pub fn set_float(&mut self, key: &str, value: f64) -> Result<(), PrtError> {
+            let key_cstr = ffi::CString::new(key).unwrap();
+            unsafe {
+                let status = prt_ffi::ffi_attribute_map_builder_set_float(
+                    self.handle, key_cstr.as_ptr(), value
+                );
+                if status == Status::STATUS_OK {
+                    Ok(())
+                } else {
+                    Err(PrtError {
+                        message: format!("Failed to set float attribute: {}", get_status_description(status)),
+                        status: Some(status),
+                    })
+                }
+            }
+        }
+
+        pub fn set_int(&mut self, key: &str, value: i32) -> Result<(), PrtError> {
+            let key_cstr = ffi::CString::new(key).unwrap();
+            unsafe {
+                let status = prt_ffi::ffi_attribute_map_builder_set_int(
+                    self.handle, key_cstr.as_ptr(), value
+                );
+                if status == Status::STATUS_OK {
+                    Ok(())
+                } else {
+                    Err(PrtError {
+                        message: format!("Failed to set int attribute: {}", get_status_description(status)),
+                        status: Some(status),
+                    })
+                }
+            }
+        }
+
+        pub fn set_bool(&mut self, key: &str, value: bool) -> Result<(), PrtError> {
+            let key_cstr = ffi::CString::new(key).unwrap();
+            unsafe {
+                let status = prt_ffi::ffi_attribute_map_builder_set_bool(
+                    self.handle, key_cstr.as_ptr(), value
+                );
+                if status == Status::STATUS_OK {
+                    Ok(())
+                } else {
+                    Err(PrtError {
+                        message: format!("Failed to set bool attribute: {}", get_status_description(status)),
+                        status: Some(status),
+                    })
+                }
+            }
+        }
+
+        pub fn create_attribute_map(&mut self) -> Result<*const prt_ffi::AttributeMap, PrtError> {
+            unsafe {
+                let map = prt_ffi::ffi_attribute_map_builder_create_map(self.handle);
+                if map.is_null() {
+                    Err(PrtError {
+                        message: "Failed to create AttributeMap".to_string(),
+                        status: Some(Status::STATUS_UNSPECIFIED_ERROR),
+                    })
+                } else {
+                    Ok(map)
+                }
+            }
+        }
+    }
+
+    impl Drop for AttributeMapBuilder {
+        fn drop(&mut self) {
+            unsafe {
+                prt_ffi::ffi_destroy_attribute_map_builder(self.handle);
+            }
+        }
+    }
+
+    pub struct ResolveMapBuilder {
+        handle: *mut prt_ffi::ResolveMapBuilder,
+    }
+
+    impl ResolveMapBuilder {
+        pub fn new() -> Result<ResolveMapBuilder, PrtError> {
+            unsafe {
+                let handle = prt_ffi::ffi_create_resolve_map_builder();
+                if handle.is_null() {
+                    Err(PrtError {
+                        message: "Failed to create ResolveMapBuilder".to_string(),
+                        status: Some(Status::STATUS_OUT_OF_MEM),
+                    })
+                } else {
+                    Ok(ResolveMapBuilder { handle })
+                }
+            }
+        }
+
+        pub fn add_entry(&mut self, key: &str, value: &str) -> Result<(), PrtError> {
+            let key_cstr = ffi::CString::new(key).unwrap();
+            let value_cstr = ffi::CString::new(value).unwrap();
+            unsafe {
+                let status = prt_ffi::ffi_resolve_map_builder_add_entry(
+                    self.handle, key_cstr.as_ptr(), value_cstr.as_ptr()
+                );
+                if status == Status::STATUS_OK {
+                    Ok(())
+                } else {
+                    Err(PrtError {
+                        message: format!("Failed to add resolve map entry: {}", get_status_description(status)),
+                        status: Some(status),
+                    })
+                }
+            }
+        }
+
+        pub fn create_resolve_map(&mut self) -> Result<*const prt_ffi::ResolveMap, PrtError> {
+            unsafe {
+                let map = prt_ffi::ffi_resolve_map_builder_create_map(self.handle);
+                if map.is_null() {
+                    Err(PrtError {
+                        message: "Failed to create ResolveMap".to_string(),
+                        status: Some(Status::STATUS_UNSPECIFIED_ERROR),
+                    })
+                } else {
+                    Ok(map)
+                }
+            }
+        }
+    }
+
+    impl Drop for ResolveMapBuilder {
+        fn drop(&mut self) {
+            unsafe {
+                prt_ffi::ffi_destroy_resolve_map_builder(self.handle);
+            }
+        }
+    }
+
+    pub fn list_encoder_ids() -> Result<Vec<String>, PrtError> {
+        unsafe {
+            let mut count: libc::size_t = 0;
+            let encoder_ids_ptr = prt_ffi::ffi_list_encoder_ids(&mut count);
+            if encoder_ids_ptr.is_null() {
+                return Err(PrtError {
+                    message: "Failed to list encoder IDs".to_string(),
+                    status: Some(Status::STATUS_UNSPECIFIED_ERROR),
+                });
+            }
+
+            let mut encoder_ids = Vec::new();
+            for i in 0..count {
+                let id_ptr = *encoder_ids_ptr.add(i);
+                if !id_ptr.is_null() {
+                    let id_str = crate::helpers::from_char_ptr_to_string(id_ptr);
+                    encoder_ids.push(id_str);
+                }
+            }
+            Ok(encoder_ids)
+        }
+    }
+
+    pub fn list_decoder_ids() -> Result<Vec<String>, PrtError> {
+        unsafe {
+            let mut count: libc::size_t = 0;
+            let decoder_ids_ptr = prt_ffi::ffi_list_decoder_ids(&mut count);
+            if decoder_ids_ptr.is_null() {
+                return Err(PrtError {
+                    message: "Failed to list decoder IDs".to_string(),
+                    status: Some(Status::STATUS_UNSPECIFIED_ERROR),
+                });
+            }
+
+            let mut decoder_ids = Vec::new();
+            for i in 0..count {
+                let id_ptr = *decoder_ids_ptr.add(i);
+                if !id_ptr.is_null() {
+                    let id_str = crate::helpers::from_char_ptr_to_string(id_ptr);
+                    decoder_ids.push(id_str);
+                }
+            }
+            Ok(decoder_ids)
+        }
+    }
+
+    pub struct EncoderInfo {
+        handle: *const prt_ffi::EncoderInfo,
+    }
+
+    impl EncoderInfo {
+        pub fn create(encoder_id: &str) -> Result<EncoderInfo, PrtError> {
+            let encoder_id_cstr = ffi::CString::new(encoder_id).unwrap();
+            unsafe {
+                let handle = prt_ffi::ffi_create_encoder_info(encoder_id_cstr.as_ptr());
+                if handle.is_null() {
+                    Err(PrtError {
+                        message: format!("Failed to create EncoderInfo for: {}", encoder_id),
+                        status: Some(Status::STATUS_ENCODER_NOT_FOUND),
+                    })
+                } else {
+                    Ok(EncoderInfo { handle })
+                }
+            }
+        }
+
+        pub fn get_id(&self) -> String {
+            unsafe {
+                let id_ptr = prt_ffi::ffi_encoder_info_get_id(self.handle);
+                crate::helpers::from_char_ptr_to_string(id_ptr)
+            }
+        }
+
+        pub fn get_name(&self) -> String {
+            unsafe {
+                let name_ptr = prt_ffi::ffi_encoder_info_get_name(self.handle);
+                crate::helpers::from_char_ptr_to_string(name_ptr)
+            }
+        }
+
+        pub fn get_description(&self) -> String {
+            unsafe {
+                let desc_ptr = prt_ffi::ffi_encoder_info_get_description(self.handle);
+                crate::helpers::from_char_ptr_to_string(desc_ptr)
+            }
+        }
+    }
+
+    impl Drop for EncoderInfo {
+        fn drop(&mut self) {
+            unsafe {
+                prt_ffi::ffi_destroy_encoder_info(self.handle);
+            }
+        }
+    }
+
+    pub mod string_utils {
+        use std::ffi;
+        use super::{PrtError, Status, get_status_description};
+
+        pub fn percent_encode(input: &str) -> Result<String, PrtError> {
+            let input_cstr = ffi::CString::new(input).unwrap();
+            unsafe {
+                let mut buffer_size: libc::size_t = 0;
+                let status = crate::prt::prt_ffi::ffi_string_utils_percent_encode(
+                    input_cstr.as_ptr(), std::ptr::null_mut(), &mut buffer_size
+                );
+                if status != Status::STATUS_OK {
+                    return Err(PrtError {
+                        message: format!("Failed to get encoded string size: {}", get_status_description(status)),
+                        status: Some(status),
+                    });
+                }
+
+                let mut buffer: Vec<u8> = vec![0; buffer_size];
+                let status = crate::prt::prt_ffi::ffi_string_utils_percent_encode(
+                    input_cstr.as_ptr(), buffer.as_mut_ptr() as *mut ffi::c_char, &mut buffer_size
+                );
+                if status == Status::STATUS_OK {
+                    let result = ffi::CStr::from_ptr(buffer.as_ptr() as *const ffi::c_char)
+                        .to_str().unwrap().to_string();
+                    Ok(result)
+                } else {
+                    Err(PrtError {
+                        message: format!("Failed to encode string: {}", get_status_description(status)),
+                        status: Some(status),
+                    })
+                }
+            }
+        }
+
+    }
+
     #[derive(Clone, Debug)]
     pub enum KeyOrUri {
         Undefined,
@@ -267,8 +571,7 @@ pub mod prt {
 
     #[allow(non_camel_case_types)]
     #[allow(dead_code)]
-    #[derive(PartialEq)]
-    #[derive(Debug)]
+    #[derive(PartialEq, Debug, Copy, Clone)]
     #[repr(C)]
     pub enum Status {
         STATUS_OK,
@@ -420,7 +723,22 @@ pub mod prt {
         }
 
         #[repr(C)]
-        struct ResolveMap {
+        pub(crate) struct AttributeMapBuilder {
+            dummy: i32,
+        }
+
+        #[repr(C)]
+        pub(crate) struct ResolveMap {
+            dummy: i32,
+        }
+
+        #[repr(C)]
+        pub(crate) struct ResolveMapBuilder {
+            dummy: i32,
+        }
+
+        #[repr(C)]
+        pub(crate) struct EncoderInfo {
             dummy: i32,
         }
 
@@ -495,6 +813,29 @@ pub mod prt {
 
         #[link(name = "bindings", kind = "static")]
         unsafe extern "C" {
+            pub(crate) fn ffi_create_attribute_map_builder() -> *mut AttributeMapBuilder;
+            pub(crate) fn ffi_destroy_attribute_map_builder(builder: *mut AttributeMapBuilder);
+            pub(crate) fn ffi_attribute_map_builder_set_string(builder: *mut AttributeMapBuilder, key: *const ffi::c_char, value: *const ffi::c_char) -> crate::prt::Status;
+            pub(crate) fn ffi_attribute_map_builder_set_float(builder: *mut AttributeMapBuilder, key: *const ffi::c_char, value: f64) -> crate::prt::Status;
+            pub(crate) fn ffi_attribute_map_builder_set_int(builder: *mut AttributeMapBuilder, key: *const ffi::c_char, value: i32) -> crate::prt::Status;
+            pub(crate) fn ffi_attribute_map_builder_set_bool(builder: *mut AttributeMapBuilder, key: *const ffi::c_char, value: bool) -> crate::prt::Status;
+            pub(crate) fn ffi_attribute_map_builder_create_map(builder: *mut AttributeMapBuilder) -> *const AttributeMap;
+
+            pub(crate) fn ffi_create_resolve_map_builder() -> *mut ResolveMapBuilder;
+            pub(crate) fn ffi_destroy_resolve_map_builder(builder: *mut ResolveMapBuilder);
+            pub(crate) fn ffi_resolve_map_builder_add_entry(builder: *mut ResolveMapBuilder, key: *const ffi::c_char, value: *const ffi::c_char) -> crate::prt::Status;
+            pub(crate) fn ffi_resolve_map_builder_create_map(builder: *mut ResolveMapBuilder) -> *const ResolveMap;
+
+            pub(crate) fn ffi_list_encoder_ids(count: *mut libc::size_t) -> *const *const ffi::c_char;
+            pub(crate) fn ffi_list_decoder_ids(count: *mut libc::size_t) -> *const *const ffi::c_char;
+            pub(crate) fn ffi_create_encoder_info(encoder_id: *const ffi::c_char) -> *const EncoderInfo;
+            pub(crate) fn ffi_destroy_encoder_info(encoder_info: *const EncoderInfo);
+            pub(crate) fn ffi_encoder_info_get_id(encoder_info: *const EncoderInfo) -> *const ffi::c_char;
+            pub(crate) fn ffi_encoder_info_get_name(encoder_info: *const EncoderInfo) -> *const ffi::c_char;
+            pub(crate) fn ffi_encoder_info_get_description(encoder_info: *const EncoderInfo) -> *const ffi::c_char;
+
+            pub(crate) fn ffi_string_utils_percent_encode(input: *const ffi::c_char, output: *mut ffi::c_char, size: *mut libc::size_t) -> crate::prt::Status;
+
             pub(crate) fn ffi_generate(initial_shapes: *const *const InitialShapeWrapper,
                                        initial_shapes_count: libc::size_t,
                                        occlusion_handles: *const u64, // see prt::OcclusionSet::Handle
@@ -600,21 +941,21 @@ pub mod prt {
             unsafe {
                 let ver = &*prt_ffi::ffi_get_version();
                 assert_cstring("prt::Version::mName", ver.name, "ArcGIS Procedural Runtime");
-                assert_cstring("prt::Version::mVersion", ver.version, "3.2.10650");
+                assert_cstring("prt::Version::mVersion", ver.version, "3.3.11173");
                 assert_cstring("prt::Version::mBuildConfig", ver.build_config, "PRT_BC_REL");
                 assert_cstring("prt::Version::mBuildOS", ver.build_os, "linux");
                 assert_cstring("prt::Version::mBuildArch", ver.build_arch, "x86_64");
                 assert_cstring("prt::Version::mBuildTC", ver.build_tc, "PRT_TC_GCC112");
-                assert_cstring("prt::Version::mBuildDate", ver.build_date, "2024-11-06 09:44");
+                assert_cstring("prt::Version::mBuildDate", ver.build_date, "2025-06-10 13:53");
 
                 assert_wcstring("prt::Version::mwName", ver.name_w, "ArcGIS Procedural Runtime");
-                assert_wcstring("prt::Version::mwBuildDate", ver.build_date_w, "2024-11-06 09:44");
+                assert_wcstring("prt::Version::mwBuildDate", ver.build_date_w, "2025-06-10 13:53");
 
-                assert_int("prt::Version::mCGAVersionMajor", ver.cga_version_major, 2024);
-                assert_int("prt::Version::mCGAVersionMinor", ver.cga_version_minor, 1);
+                assert_int("prt::Version::mCGAVersionMajor", ver.cga_version_major, 2025);
+                assert_int("prt::Version::mCGAVersionMinor", ver.cga_version_minor, 0);
 
                 assert_int("prt::Version::mCGACVersionMajor", ver.cgac_version_major, 2);
-                assert_int("prt::Version::mCGACVersionMinor", ver.cgac_version_minor, 6);
+                assert_int("prt::Version::mCGACVersionMinor", ver.cgac_version_minor, 8);
             }
         }
 

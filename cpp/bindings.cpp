@@ -1,6 +1,8 @@
 #include "bindings.h"
 
 #include "prt/API.h"
+#include "prt/AttributeMap.h"
+#include "prt/DecoderInfo.h"
 #include "prt/EncoderInfo.h"
 #include "prt/ResolveMap.h"
 
@@ -8,6 +10,7 @@
 #include <map>
 #include <string>
 #include <vector>
+#include <cstring>
 
 namespace {
 
@@ -206,3 +209,220 @@ void RustLogHandlerBinding::getFormat(bool* dateTime, bool* level) {
 	*dateTime = false;
 	*level = false;
 }
+
+// AttributeMapBuilder implementations
+AttributeMapBuilderWrapper* ffi_create_attribute_map_builder() {
+	prt::AttributeMapBuilder* builder = prt::AttributeMapBuilder::create();
+	return reinterpret_cast<AttributeMapBuilderWrapper*>(builder);
+}
+
+void ffi_destroy_attribute_map_builder(AttributeMapBuilderWrapper* builder) {
+	if (builder) {
+		prt::AttributeMapBuilder* prtBuilder = reinterpret_cast<prt::AttributeMapBuilder*>(builder);
+		prtBuilder->destroy();
+	}
+}
+
+prt::Status ffi_attribute_map_builder_set_string(AttributeMapBuilderWrapper* builder, const char* key, const char* value) {
+	if (!builder || !key || !value) return prt::STATUS_ILLEGAL_VALUE;
+	
+	prt::AttributeMapBuilder* prtBuilder = reinterpret_cast<prt::AttributeMapBuilder*>(builder);
+	std::wstring wKey = toUTF16FromUTF8(key);
+	std::wstring wValue = toUTF16FromUTF8(value);
+	return prtBuilder->setString(wKey.c_str(), wValue.c_str());
+}
+
+prt::Status ffi_attribute_map_builder_set_float(AttributeMapBuilderWrapper* builder, const char* key, double value) {
+	if (!builder || !key) return prt::STATUS_ILLEGAL_VALUE;
+	
+	prt::AttributeMapBuilder* prtBuilder = reinterpret_cast<prt::AttributeMapBuilder*>(builder);
+	std::wstring wKey = toUTF16FromUTF8(key);
+	return prtBuilder->setFloat(wKey.c_str(), value);
+}
+
+prt::Status ffi_attribute_map_builder_set_int(AttributeMapBuilderWrapper* builder, const char* key, int32_t value) {
+	if (!builder || !key) return prt::STATUS_ILLEGAL_VALUE;
+	
+	prt::AttributeMapBuilder* prtBuilder = reinterpret_cast<prt::AttributeMapBuilder*>(builder);
+	std::wstring wKey = toUTF16FromUTF8(key);
+	return prtBuilder->setInt(wKey.c_str(), value);
+}
+
+prt::Status ffi_attribute_map_builder_set_bool(AttributeMapBuilderWrapper* builder, const char* key, bool value) {
+	if (!builder || !key) return prt::STATUS_ILLEGAL_VALUE;
+	
+	prt::AttributeMapBuilder* prtBuilder = reinterpret_cast<prt::AttributeMapBuilder*>(builder);
+	std::wstring wKey = toUTF16FromUTF8(key);
+	return prtBuilder->setBool(wKey.c_str(), value);
+}
+
+const AttributeMapWrapper* ffi_attribute_map_builder_create_map(AttributeMapBuilderWrapper* builder) {
+	if (!builder) return nullptr;
+	
+	prt::AttributeMapBuilder* prtBuilder = reinterpret_cast<prt::AttributeMapBuilder*>(builder);
+	const prt::AttributeMap* map = prtBuilder->createAttributeMapAndReset();
+	return reinterpret_cast<const AttributeMapWrapper*>(map);
+}
+
+// ResolveMapBuilder implementations
+ResolveMapBuilderWrapper* ffi_create_resolve_map_builder() {
+	prt::ResolveMapBuilder* builder = prt::ResolveMapBuilder::create();
+	return reinterpret_cast<ResolveMapBuilderWrapper*>(builder);
+}
+
+void ffi_destroy_resolve_map_builder(ResolveMapBuilderWrapper* builder) {
+	if (builder) {
+		prt::ResolveMapBuilder* prtBuilder = reinterpret_cast<prt::ResolveMapBuilder*>(builder);
+		prtBuilder->destroy();
+	}
+}
+
+prt::Status ffi_resolve_map_builder_add_entry(ResolveMapBuilderWrapper* builder, const char* key, const char* value) {
+	if (!builder || !key || !value) return prt::STATUS_ILLEGAL_VALUE;
+	
+	prt::ResolveMapBuilder* prtBuilder = reinterpret_cast<prt::ResolveMapBuilder*>(builder);
+	std::wstring wKey = toUTF16FromUTF8(key);
+	std::wstring wValue = toUTF16FromUTF8(value);
+	return prtBuilder->addEntry(wKey.c_str(), wValue.c_str());
+}
+
+const ResolveMapWrapper* ffi_resolve_map_builder_create_map(ResolveMapBuilderWrapper* builder) {
+	if (!builder) return nullptr;
+	
+	prt::ResolveMapBuilder* prtBuilder = reinterpret_cast<prt::ResolveMapBuilder*>(builder);
+	const prt::ResolveMap* map = prtBuilder->createResolveMapAndReset();
+	return reinterpret_cast<const ResolveMapWrapper*>(map);
+}
+
+// EncoderInfo/DecoderInfo implementations
+const char* const* ffi_list_encoder_ids(size_t* count) {
+	if (!count) return nullptr;
+	
+	// First call to get required buffer size
+	size_t bufferSize = 0;
+	prt::listEncoderIds(nullptr, &bufferSize);
+	if (bufferSize == 0) {
+		*count = 0;
+		return nullptr;
+	}
+	
+	// Allocate buffer and get the list
+	static std::vector<wchar_t> wideBuffer;
+	wideBuffer.resize(bufferSize);
+	prt::listEncoderIds(wideBuffer.data(), &bufferSize);
+	
+	// Convert to UTF-8 and store as static (simplified approach)
+	static std::string encoderList = toUTF8FromUTF16(wideBuffer.data());
+	static std::vector<const char*> encoderPtrs;
+	
+	// Parse semicolon-separated list
+	encoderPtrs.clear();
+	const char* start = encoderList.c_str();
+	const char* end = encoderList.c_str() + encoderList.length();
+	while (start < end) {
+		const char* semicolon = std::strchr(start, ';');
+		if (semicolon == nullptr) semicolon = end;
+		encoderPtrs.push_back(start);
+		if (semicolon < end) {
+			const_cast<char*>(semicolon)[0] = '\0'; // null-terminate
+			start = semicolon + 1;
+		} else {
+			break;
+		}
+	}
+	
+	*count = encoderPtrs.size();
+	return encoderPtrs.data();
+}
+
+const char* const* ffi_list_decoder_ids(size_t* count) {
+	if (!count) return nullptr;
+	
+	// First call to get required buffer size  
+	size_t bufferSize = 0;
+	prt::listDecoderIds(nullptr, &bufferSize);
+	if (bufferSize == 0) {
+		*count = 0;
+		return nullptr;
+	}
+	
+	// Allocate buffer and get the list
+	static std::vector<wchar_t> wideBuffer;
+	wideBuffer.resize(bufferSize);
+	prt::listDecoderIds(wideBuffer.data(), &bufferSize);
+	
+	// Convert to UTF-8 and store as static (simplified approach)
+	static std::string decoderList = toUTF8FromUTF16(wideBuffer.data());
+	static std::vector<const char*> decoderPtrs;
+	
+	// Parse semicolon-separated list
+	decoderPtrs.clear();
+	const char* start = decoderList.c_str();
+	const char* end = decoderList.c_str() + decoderList.length();
+	while (start < end) {
+		const char* semicolon = std::strchr(start, ';');
+		if (semicolon == nullptr) semicolon = end;
+		decoderPtrs.push_back(start);
+		if (semicolon < end) {
+			const_cast<char*>(semicolon)[0] = '\0'; // null-terminate
+			start = semicolon + 1;
+		} else {
+			break;
+		}
+	}
+	
+	*count = decoderPtrs.size();
+	return decoderPtrs.data();
+}
+
+const EncoderInfoWrapper* ffi_create_encoder_info(const char* encoder_id) {
+	if (!encoder_id) return nullptr;
+	
+	std::wstring wEncoderId = toUTF16FromUTF8(encoder_id);
+	const prt::EncoderInfo* info = prt::createEncoderInfo(wEncoderId.c_str());
+	return reinterpret_cast<const EncoderInfoWrapper*>(info);
+}
+
+void ffi_destroy_encoder_info(const EncoderInfoWrapper* encoder_info) {
+	if (encoder_info) {
+		const prt::EncoderInfo* prtInfo = reinterpret_cast<const prt::EncoderInfo*>(encoder_info);
+		prtInfo->destroy();
+	}
+}
+
+const char* ffi_encoder_info_get_id(const EncoderInfoWrapper* encoder_info) {
+	if (!encoder_info) return nullptr;
+	
+	const prt::EncoderInfo* prtInfo = reinterpret_cast<const prt::EncoderInfo*>(encoder_info);
+	const wchar_t* wideId = prtInfo->getID();
+	static std::string id = toUTF8FromUTF16(wideId);
+	return id.c_str();
+}
+
+const char* ffi_encoder_info_get_name(const EncoderInfoWrapper* encoder_info) {
+	if (!encoder_info) return nullptr;
+	
+	const prt::EncoderInfo* prtInfo = reinterpret_cast<const prt::EncoderInfo*>(encoder_info);
+	const wchar_t* wideName = prtInfo->getName();
+	static std::string name = toUTF8FromUTF16(wideName);
+	return name.c_str();
+}
+
+const char* ffi_encoder_info_get_description(const EncoderInfoWrapper* encoder_info) {
+	if (!encoder_info) return nullptr;
+	
+	const prt::EncoderInfo* prtInfo = reinterpret_cast<const prt::EncoderInfo*>(encoder_info);
+	const wchar_t* wideDesc = prtInfo->getDescription();
+	static std::string desc = toUTF8FromUTF16(wideDesc);
+	return desc.c_str();
+}
+
+// StringUtils implementations
+prt::Status ffi_string_utils_percent_encode(const char* input, char* output, size_t* size) {
+	if (!input || !size) return prt::STATUS_ILLEGAL_VALUE;
+	
+	prt::Status status;
+	prt::StringUtils::percentEncode(input, output, size, &status);
+	return status;
+}
+

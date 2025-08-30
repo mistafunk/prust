@@ -81,6 +81,6 @@ fn test_version() {
     assert!(prt_version_res.is_ok());
     let prt_version = prt_version_res.ok().unwrap();
     assert_eq!(prt_version.version_major, 3);
-    assert_eq!(prt_version.version_minor, 2);
-    assert_eq!(prt_version.version_string, "3.2.10650");
+    assert_eq!(prt_version.version_minor, 3);
+    assert_eq!(prt_version.version_string, "3.3.11173");
 }
