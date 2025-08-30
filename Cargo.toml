@@ -1,7 +1,8 @@
 [package]
 name = "prust"
-version = "0.2.3"
+version = "0.2.4"
 edition = "2024"
+rust-version = "1.89"
 build = "build.rs"
 links = "com.esri.prt.core"
 authors = ["Simon Haegler <shaegler@esri.com>"]

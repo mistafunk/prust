@@ -8,7 +8,7 @@ use url;
 use zip_extract;
 
 const CESDK_REPO_URL: &str = "https://github.com/esri/cityengine-sdk";
-const CESDK_VERSION: &str = "3.2.10650";
+const CESDK_VERSION: &str = "3.3.11173";
 const CESDK_CLASSIFIER: &str = "rhel8-gcc112-x86_64-rel-opt"; // TODO: add support for windows
 
 fn get_out_path() -> PathBuf {
@@ -36,7 +36,11 @@ fn download(my_url: &url::Url) -> PathBuf {
         return extraction_path;
     }
 
-    let response = reqwest::blocking::get(my_url.to_string()).unwrap();
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(300))
+        .build()
+        .unwrap();
+    let response = client.get(my_url.to_string()).send().unwrap();
     let content = response.bytes().unwrap();
     let mut local_file = std::fs::File::create(&local_file_path).unwrap();
     let _res = std::io::copy(&mut content.as_ref(), &mut local_file);
